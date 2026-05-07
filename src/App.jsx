@@ -181,7 +181,7 @@ function TabRegistrar({ userId, sesion, txns, setTxns }) {
   const uf = (k,v) => setMForm(p=>({...p,[k]:v}));
   const GC = ["Alimentacion","Comida afuera","Compras casa","Taxi","Transporte","Salud","Educacion","Suscripciones","Entretenimiento","Ropa","Deuda cuota","Negocio","Otro"];
   const IC = ["Sueldo","CTS","Gratificacion","Bono","Freelance","Negocio ventas","Multinivel cheque","Otro ingreso"];
-  const chatRef = useState(null);
+  const chatRef = null;
 
   const PROMPT = (txt) => `Eres asistente de finanzas personales peruano. Hoy es ${today()}.
 Analiza este mensaje y extrae el gasto o ingreso. El usuario puede escribir informal, con errores, fechas relativas (ayer, el lunes, el 5 de mayo), en jerga peruana.
