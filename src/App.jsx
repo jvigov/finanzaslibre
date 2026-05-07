@@ -167,21 +167,321 @@ function AuthScreen({ onLogin }) {
 }
 
 function TabRegistrar({ userId, sesion, txns, setTxns }) {
-  const [modo, setModo] = useState("ia");
+  const [seccion, setSeccion] = useState("chat"); // chat | foto | manual
+  const [mensajes, setMensajes] = useState([]);
   const [input, setInput] = useState("");
-  const [imgB64, setImgB64] = useState(null);
-  const [imgPrev, setImgPrev] = useState(null);
-  const [analiz, setAnaliz] = useState(false);
-  const [resultado, setResultado] = useState(null);
-  const [error, setError] = useState("");
-  const [guardado, setGuardado] = useState(false);
-  const [mes, setMes] = useState(curMes());
   const [grabando, setGrabando] = useState(false);
   const [mediaRec, setMediaRec] = useState(null);
+  const [analiz, setAnaliz] = useState(false);
+  const [imgB64, setImgB64] = useState(null);
+  const [imgPrev, setImgPrev] = useState(null);
+  const [mes, setMes] = useState(curMes());
+  const [guardado, setGuardado] = useState(false);
   const [mForm, setMForm] = useState({ tipo:"gasto", cat:"Alimentacion", monto:"", descripcion:"", fecha:today(), fuente:"Personal" });
   const uf = (k,v) => setMForm(p=>({...p,[k]:v}));
   const GC = ["Alimentacion","Comida afuera","Compras casa","Taxi","Transporte","Salud","Educacion","Suscripciones","Entretenimiento","Ropa","Deuda cuota","Negocio","Otro"];
   const IC = ["Sueldo","CTS","Gratificacion","Bono","Freelance","Negocio ventas","Multinivel cheque","Otro ingreso"];
+  const chatRef = useState(null);
+
+  const PROMPT = (txt) => `Eres asistente de finanzas personales peruano. Hoy es ${today()}.
+Analiza este mensaje y extrae el gasto o ingreso. El usuario puede escribir informal, con errores, fechas relativas (ayer, el lunes, el 5 de mayo), en jerga peruana.
+Mensaje: "${txt}"
+Responde SOLO con JSON valido:
+{"tipo":"gasto","monto":38.5,"cat":"Taxi","descripcion":"taxi al dentista","fecha":"${today()}","fuente":"Personal","confianza":"alta"}
+- tipo: gasto o ingreso
+- fecha YYYY-MM-DD. "ayer"=resta 1 dia, "el 5 de mayo"=2026-05-05
+- cats gasto: Alimentacion,Comida afuera,Compras casa,Taxi,Transporte,Salud,Educacion,Suscripciones,Entretenimiento,Ropa,Deuda cuota,Negocio,Otro
+- cats ingreso: Sueldo,CTS,Gratificacion,Bono,Freelance,Negocio ventas,Multinivel cheque,Otro ingreso`;
+
+  const procesarTexto = async (texto) => {
+    if (!texto.trim()) return;
+    const msgUser = { rol:"user", texto, id:Date.now() };
+    setMensajes(p=>[...p, msgUser]);
+    setInput("");
+    setAnaliz(true);
+    try {
+      const resp = await callClaude(PROMPT(texto));
+      const clean = resp.replace(/```json|```/g,"").trim();
+      const s = clean.indexOf("{"), e2 = clean.lastIndexOf("}");
+      const data = JSON.parse(clean.slice(s, e2+1));
+      const msgBot = { rol:"bot", texto:"", data, id:Date.now()+1 };
+      setMensajes(p=>[...p, msgBot]);
+    } catch(e) {
+      setMensajes(p=>[...p, { rol:"bot", texto:"No entendi. Intenta: 'taxi 38 soles hoy' o 'almorce 22 ayer'", id:Date.now()+1 }]);
+    }
+    setAnaliz(false);
+  };
+
+  const confirmarMsg = async (data, msgId) => {
+    const body = { user_id:userId, tipo:data.tipo, cat:data.cat, monto:data.monto, descripcion:data.descripcion, fecha:data.fecha, fuente:data.fuente||"Personal" };
+    const saved = await sb.insert("transacciones", body, sesion.token);
+    if (saved&&saved.id) {
+      setTxns(p=>[saved,...p]);
+      setMensajes(p=>p.map(m=>m.id===msgId?{...m,confirmado:true}:m));
+      setGuardado(true); setTimeout(()=>setGuardado(false), 2000);
+    }
+  };
+
+  const iniciarGrabacion = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      const chunks = [];
+      const rec = new MediaRecorder(stream, { mimeType:"audio/webm" });
+      rec.ondataavailable = e => { if(e.data.size>0) chunks.push(e.data); };
+      rec.onstop = () => {
+        stream.getTracks().forEach(t=>t.stop());
+        const blob = new Blob(chunks, { type:"audio/webm" });
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const b64 = reader.result.split(",")[1];
+          setMensajes(p=>[...p, { rol:"user", texto:"🎤 Audio enviado", id:Date.now() }]);
+          setAnaliz(true);
+          try {
+            const prompt = `Hoy es ${today()}. El usuario habla en espanol peruano sobre un gasto o ingreso. Transcribe el audio y extrae los datos. Responde SOLO con JSON: {"tipo":"gasto","monto":0,"cat":"Otro","descripcion":"descripcion","fecha":"${today()}","fuente":"Personal","confianza":"alta"}`;
+            const resp = await callClaude(prompt, b64, "audio/webm");
+            const clean = resp.replace(/```json|```/g,"").trim();
+            const s = clean.indexOf("{"), e2 = clean.lastIndexOf("}");
+            const data = JSON.parse(clean.slice(s, e2+1));
+            setMensajes(p=>[...p, { rol:"bot", texto:"", data, id:Date.now()+1 }]);
+          } catch(e) {
+            setMensajes(p=>[...p, { rol:"bot", texto:"No pude procesar el audio. Intenta escribirlo.", id:Date.now()+1 }]);
+          }
+          setAnaliz(false);
+        };
+        reader.readAsDataURL(blob);
+      };
+      rec.start();
+      setMediaRec(rec);
+      setGrabando(true);
+    } catch(e) {
+      setMensajes(p=>[...p, { rol:"bot", texto:"No se pudo acceder al microfono. Permite el permiso en tu navegador.", id:Date.now() }]);
+    }
+  };
+
+  const detenerGrabacion = () => {
+    if (mediaRec) { mediaRec.stop(); setMediaRec(null); }
+    setGrabando(false);
+  };
+
+  const handleFoto = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    setImgPrev(URL.createObjectURL(file));
+    const reader = new FileReader();
+    reader.onload = () => setImgB64(reader.result.split(",")[1]);
+    reader.readAsDataURL(file);
+  };
+
+  const analizarFoto = async () => {
+    if (!imgB64) return;
+    setAnaliz(true);
+    try {
+      const prompt = `Analiza este recibo/comprobante. Hoy es ${today()}. Responde SOLO con JSON: {"tipo":"gasto","monto":0,"cat":"Otro","descripcion":"descripcion del establecimiento","fecha":"${today()}","fuente":"Personal","confianza":"alta"}`;
+      const resp = await callClaude(prompt, imgB64);
+      const clean = resp.replace(/```json|```/g,"").trim();
+      const s = clean.indexOf("{"), e2 = clean.lastIndexOf("}");
+      const data = JSON.parse(clean.slice(s, e2+1));
+      setMensajes(p=>[...p, { rol:"user", texto:"📷 Foto de recibo", id:Date.now() }, { rol:"bot", texto:"", data, id:Date.now()+1 }]);
+      setSeccion("chat");
+      setImgB64(null); setImgPrev(null);
+    } catch(e) {
+      alert("No pude leer el recibo. Intenta con otra foto.");
+    }
+    setAnaliz(false);
+  };
+
+  const guardarManual = async () => {
+    if (!mForm.monto) return;
+    const body = { user_id:userId, ...mForm, monto:+mForm.monto };
+    const saved = await sb.insert("transacciones", body, sesion.token);
+    if (saved&&saved.id) {
+      setTxns(p=>[saved,...p]);
+      setMForm({ tipo:"gasto", cat:"Alimentacion", monto:"", descripcion:"", fecha:today(), fuente:"Personal" });
+      setGuardado(true); setTimeout(()=>setGuardado(false), 2000);
+    }
+  };
+
+  const eliminar = async (id) => {
+    await sb.delete("transacciones", id, sesion.token);
+    setTxns(p=>p.filter(t=>t.id!==id));
+  };
+
+  const filtradas = txns.filter(t=>t.fecha&&t.fecha.startsWith(mes));
+  const ingMes  = filtradas.filter(t=>t.tipo==="ingreso").reduce((a,t)=>a+t.monto,0);
+  const gastVar = filtradas.filter(t=>t.tipo==="gasto").reduce((a,t)=>a+t.monto,0);
+  const gastMes = TOTAL_FIJOS + gastVar;
+  const porDia  = {};
+  filtradas.forEach(t=>{ const d=t.fecha&&t.fecha.split("T")[0]; if(d){if(!porDia[d])porDia[d]=[]; porDia[d].push(t);} });
+  const dias = Object.keys(porDia).sort((a,b)=>b.localeCompare(a));
+
+  return (
+    <div>
+      {/* TABS */}
+      <div style={{ display:"flex", gap:6, marginBottom:14 }}>
+        {[["chat","Chat / Voz"],["foto","Foto"],["manual","Manual"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setSeccion(k)}
+            style={{ flex:1, padding:"10px", borderRadius:10, border:"1px solid "+(seccion===k?C.accent:C.border), background:seccion===k?C.accent+"18":C.surface, color:seccion===k?C.accent:C.muted, fontWeight:700, fontSize:12, cursor:"pointer" }}>{l}</button>
+        ))}
+      </div>
+
+      {/* SECCION CHAT */}
+      {seccion==="chat" && (
+        <div style={{ display:"flex", flexDirection:"column" }}>
+          {/* MENSAJES */}
+          <div style={{ minHeight:200, maxHeight:360, overflowY:"auto", marginBottom:10, display:"flex", flexDirection:"column", gap:10 }}>
+            {mensajes.length===0 && (
+              <div style={{ textAlign:"center", padding:"30px 0", color:C.muted }}>
+                <div style={{ fontSize:13, marginBottom:6 }}>Escribe o graba lo que gastaste</div>
+                <div style={{ fontSize:11 }}>Ej: "taxi 38 soles hoy", "almorce 22 ayer", "me pagaron 3000"</div>
+              </div>
+            )}
+            {mensajes.map(m=>(
+              <div key={m.id} style={{ display:"flex", justifyContent:m.rol==="user"?"flex-end":"flex-start" }}>
+                {m.rol==="user" ? (
+                  <div style={{ background:C.accent+"30", borderRadius:"16px 16px 4px 16px", padding:"10px 14px", maxWidth:"80%", fontSize:13 }}>{m.texto}</div>
+                ) : m.data && !m.confirmado ? (
+                  <div style={{ background:C.card2, border:"1px solid "+C.border, borderRadius:"16px 16px 16px 4px", padding:14, maxWidth:"90%", width:"100%" }}>
+                    <div style={{ display:"flex", gap:10, marginBottom:10 }}>
+                      <div style={S.box(m.data.tipo==="ingreso"?C.emerald:C.danger)}>
+                        <div style={S.bv(m.data.tipo==="ingreso"?C.emerald:C.danger,16)}>{fmt(m.data.monto)}</div>
+                        <div style={S.bl}>{m.data.tipo}</div>
+                      </div>
+                      <div style={S.box(C.accent)}>
+                        <div style={{ fontWeight:700, color:C.accent, fontSize:13 }}>{m.data.cat}</div>
+                        <div style={S.bl}>{m.data.fecha}</div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize:12, color:C.soft, marginBottom:10 }}>{m.data.descripcion}</div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button style={{ ...S.btn(C.emerald), flex:2, padding:"9px", fontSize:12 }} onClick={()=>confirmarMsg(m.data, m.id)}>Guardar</button>
+                      <button style={{ ...S.btn(C.danger), flex:1, padding:"9px", fontSize:12 }} onClick={()=>setMensajes(p=>p.filter(x=>x.id!==m.id))}>x</button>
+                    </div>
+                  </div>
+                ) : m.confirmado ? (
+                  <div style={{ background:C.emerald+"20", border:"1px solid "+C.emerald+"40", borderRadius:"16px 16px 16px 4px", padding:"10px 14px", fontSize:12, color:C.emerald }}>
+                    Guardado: {fmt(m.data.monto)} en {m.data.cat}
+                  </div>
+                ) : (
+                  <div style={{ background:C.card2, borderRadius:"16px 16px 16px 4px", padding:"10px 14px", fontSize:13, color:C.soft, maxWidth:"80%" }}>{m.texto}</div>
+                )}
+              </div>
+            ))}
+            {analiz && (
+              <div style={{ display:"flex", justifyContent:"flex-start" }}>
+                <div style={{ background:C.card2, borderRadius:"16px 16px 16px 4px", padding:"10px 14px", fontSize:13, color:C.muted }}>
+                  Procesando...
+                </div>
+              </div>
+            )}
+          </div>
+
+          {guardado && <div style={{ ...S.alert(C.emerald), textAlign:"center", marginBottom:8, fontSize:12 }}><b>Guardado</b></div>}
+
+          {/* INPUT CHAT - ESTILO CLAUDE */}
+          <div style={{ display:"flex", gap:8, alignItems:"flex-end", background:C.surface, borderRadius:14, border:"1px solid "+C.border, padding:"8px 10px" }}>
+            <textarea
+              style={{ flex:1, background:"transparent", border:"none", outline:"none", color:C.text, fontSize:13, resize:"none", minHeight:36, maxHeight:100, lineHeight:1.5, fontFamily:"inherit" }}
+              value={input} onChange={e=>setInput(e.target.value)}
+              placeholder="Escribe aqui..."
+              onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); procesarTexto(input); } }}
+              rows={1}
+            />
+            {/* BOTON MICROFONO */}
+            <button
+              onClick={grabando?detenerGrabacion:iniciarGrabacion}
+              style={{ width:36, height:36, borderRadius:"50%", border:"none", background:grabando?C.danger:C.border, color:grabando?"#fff":C.soft, cursor:"pointer", fontSize:16, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+              {grabando?"⏹":"🎤"}
+            </button>
+            {/* BOTON ENVIAR */}
+            <button
+              onClick={()=>procesarTexto(input)}
+              disabled={!input.trim()||analiz}
+              style={{ width:36, height:36, borderRadius:"50%", border:"none", background:input.trim()?C.accent:C.border, color:input.trim()?"#040a12":C.muted, cursor:"pointer", fontSize:18, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+              ↑
+            </button>
+          </div>
+          {grabando && <div style={{ textAlign:"center", fontSize:11, color:C.danger, marginTop:6 }}>Grabando... toca el cuadrado para terminar</div>}
+        </div>
+      )}
+
+      {/* SECCION FOTO */}
+      {seccion==="foto" && (
+        <div>
+          <label style={{ display:"block", border:"2px dashed "+C.border, borderRadius:14, padding:24, textAlign:"center", cursor:"pointer", background:C.surface, marginBottom:12 }}>
+            {imgPrev
+              ? <img src={imgPrev} style={{ maxWidth:"100%", maxHeight:220, borderRadius:10, objectFit:"contain" }}/>
+              : <div><div style={{ fontSize:48, marginBottom:8 }}>📷</div><div style={{ color:C.soft, fontSize:13 }}>Toca para subir foto del recibo o comprobante</div></div>}
+            <input type="file" accept="image/*" capture="environment" onChange={handleFoto} style={{ display:"none" }}/>
+          </label>
+          {imgB64 && (
+            <button style={{ ...S.btn(C.accent), width:"100%", padding:"13px", fontSize:14, opacity:analiz?0.7:1 }} onClick={analizarFoto} disabled={analiz}>
+              {analiz?"Analizando recibo...":"Extraer datos del recibo con IA"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* SECCION MANUAL */}
+      {seccion==="manual" && (
+        <div>
+          <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+            {["gasto","ingreso"].map(t=>(
+              <button key={t} onClick={()=>uf("tipo",t)}
+                style={{ flex:1, padding:"11px", borderRadius:10, border:"1px solid "+(t===mForm.tipo?(t==="gasto"?C.danger:C.emerald):C.border), background:t===mForm.tipo?(t==="gasto"?C.danger+"20":C.emerald+"20"):C.surface, color:t===mForm.tipo?(t==="gasto"?C.danger:C.emerald):C.muted, fontWeight:700, cursor:"pointer" }}>
+                {t==="gasto"?"Gasto":"Ingreso"}
+              </button>
+            ))}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+            <div><label style={S.lbl2}>Categoria</label><select style={S.sel} value={mForm.cat} onChange={e=>uf("cat",e.target.value)}>{(mForm.tipo==="ingreso"?IC:GC).map(c=><option key={c}>{c}</option>)}</select></div>
+            <div><label style={S.lbl2}>Monto (S/)</label><input style={S.inp} type="number" value={mForm.monto} onChange={e=>uf("monto",e.target.value)} placeholder="0.00"/></div>
+            <div><label style={S.lbl2}>Fecha</label><input style={S.inp} type="date" value={mForm.fecha} onChange={e=>uf("fecha",e.target.value)}/></div>
+            <div><label style={S.lbl2}>Fuente</label><select style={S.sel} value={mForm.fuente} onChange={e=>uf("fuente",e.target.value)}>
+              {["Personal","EIRL","Familiar hermano","Familiar pareja","Familiar mama","Familiar papa","Otro"].map(f=><option key={f}>{f}</option>)}
+            </select></div>
+          </div>
+          <div style={{ marginBottom:12 }}><label style={S.lbl2}>Descripcion</label><input style={S.inp} value={mForm.descripcion} onChange={e=>uf("descripcion",e.target.value)} placeholder="Ej: Taxi al dentista..."/></div>
+          <button style={{ ...S.btn(mForm.tipo==="ingreso"?C.emerald:C.danger), width:"100%", padding:"13px" }} onClick={guardarManual}>Guardar</button>
+          {guardado && <div style={{ ...S.alert(C.emerald), textAlign:"center", marginTop:10 }}><b>Guardado</b></div>}
+        </div>
+      )}
+
+      {/* RESUMEN DEL MES */}
+      <div style={{ marginTop:20 }}>
+        <input type="month" style={{ ...S.inp, marginBottom:10 }} value={mes} onChange={e=>setMes(e.target.value)}/>
+        <div style={S.g3}>
+          <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,16)}>{fmtK(ingMes)}</div><div style={S.bl}>Ingresos</div></div>
+          <div style={S.box(C.danger)}><div style={S.bv(C.danger,16)}>{fmtK(gastMes)}</div><div style={S.bl}>Gastos</div></div>
+          <div style={S.box(ingMes-gastMes>=0?C.accent:C.danger)}><div style={S.bv(ingMes-gastMes>=0?C.accent:C.danger,16)}>{fmtK(ingMes-gastMes)}</div><div style={S.bl}>Balance</div></div>
+        </div>
+
+        {dias.map(dia=>{
+          const movs=porDia[dia];
+          const tot=movs.reduce((a,t)=>a+(t.tipo==="ingreso"?t.monto:-t.monto),0);
+          return (
+            <div key={dia} style={S.card}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+                <span style={{ fontWeight:800, fontSize:14, color:C.accent }}>{fmtF(dia)}</span>
+                <span style={{ fontWeight:700, color:tot>=0?C.emerald:C.danger }}>{tot>=0?"+":""}{fmt(tot)}</span>
+              </div>
+              {movs.map(t=>(
+                <div key={t.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderTop:"1px solid "+C.border }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.descripcion||t.cat}</div>
+                    <div style={{ fontSize:10, color:C.muted }}>{t.cat} - {t.fuente}</div>
+                  </div>
+                  <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                    <span style={{ fontWeight:700, color:t.tipo==="ingreso"?C.emerald:C.danger }}>{t.tipo==="ingreso"?"+":"-"}{fmt(t.monto)}</span>
+                    <button onClick={()=>eliminar(t.id)} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:16 }}>x</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
   const PROMPT = (extra) => `Eres un asistente de finanzas personales peruano. Analiza el siguiente mensaje y extrae los datos del gasto o ingreso. El usuario puede escribir de cualquier forma: informal, con errores, en jerga peruana, con fechas relativas como "ayer", "el lunes", "hoy", "el 5 de mayo", etc.
 
