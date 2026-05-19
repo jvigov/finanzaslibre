@@ -118,12 +118,11 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl}){
   const diaActual=new Date().getDate();
   const pctMes=Math.round((diaActual/diasMes)*100);
 
-  // Ingresos: base perfil + txns manuales + fuxion del mes
+  // Ingresos: solo lo que el usuario registra manualmente + fuxion del mes
   const ingTxns=txns.filter(t=>t.tipo==="ingreso"&&t.fecha&&t.fecha.startsWith(mes)).reduce((a,t)=>a+t.monto,0);
-  const ingBase=(perfil.sueldo_neto||3000)+(perfil.ing_gestiones||180);
   const fuxMes=(fuxionSemanas||[]).filter(s=>s.semana_inicio&&s.semana_inicio.startsWith(mes));
   const ingFuxMes=fuxMes.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ventas||0),0);
-  const ingTotal=ingTxns>0?(ingTxns+ingFuxMes):(ingBase+ingFuxMes);
+  const ingTotal=ingTxns+ingFuxMes;
 
   // Gastos
   const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.startsWith(mes)).reduce((a,t)=>a+t.monto,0);
@@ -368,7 +367,7 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
   const [vistaFuxion,setVistaFuxion]=useState("semanas"); // "semanas" | "caja"
   const [modal,setModal]=useState(false);
   const [modalCaja,setModalCaja]=useState(false);
-  const [f,setF]=useState({semana_inicio:"",google_ads:"",productos:"",ganancias_codigos:"",ganancias_eirl:"",ventas:"",nota:""});
+  const [f,setF]=useState({semana_inicio:"",semana_fin:"",semana_label:"",google_ads:"",productos:"",ganancias_codigos:"",ganancias_eirl:"",ventas:"",nota:""});
   const [fc,setFc]=useState({fecha:today(),concepto:"",monto:"",tipo:"salida"});
   const uf=(k,v)=>setF(p=>({...p,[k]:v}));
   const ufc=(k,v)=>setFc(p=>({...p,[k]:v}));
@@ -393,13 +392,13 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
 
   const guardarSemana=async()=>{
     if(!f.semana_inicio)return;
-    const body={user_id:userId,semana_inicio:f.semana_inicio,google_ads:+f.google_ads||0,productos:+f.productos||0,ganancias_codigos:+f.ganancias_codigos||0,ganancias_eirl:+f.ganancias_eirl||0,ventas:+f.ventas||0,nota:f.nota||""};
+    const body={user_id:userId,semana_inicio:f.semana_inicio,semana_fin:f.semana_fin||"",semana_label:f.semana_label||"",google_ads:+f.google_ads||0,productos:+f.productos||0,ganancias_codigos:+f.ganancias_codigos||0,ganancias_eirl:+f.ganancias_eirl||0,ventas:+f.ventas||0,nota:f.nota||""};
     if(f.id){await sb.update("fuxion_semanas",f.id,body,sesion.token);setFuxionSemanas(p=>p.map(s=>s.id===f.id?{...body,id:f.id}:s));}
     else{const saved=await sb.insert("fuxion_semanas",body,sesion.token);if(saved&&saved.id)setFuxionSemanas(p=>[saved,...p]);}
     setModal(false);
   };
   const delSemana=async(id)=>{await sb.delete("fuxion_semanas",id,sesion.token);setFuxionSemanas(p=>p.filter(s=>s.id!==id));};
-  const editSemana=(s)=>{setF({...s,google_ads:s.google_ads+"",productos:s.productos+"",ganancias_codigos:(s.ganancias_codigos||0)+"",ganancias_eirl:(s.ganancias_eirl||0)+"",ventas:(s.ventas||0)+""});setModal(true);};
+  const editSemana=(s)=>{setF({...s,semana_fin:s.semana_fin||"",semana_label:s.semana_label||"",google_ads:s.google_ads+"",productos:s.productos+"",ganancias_codigos:(s.ganancias_codigos||0)+"",ganancias_eirl:(s.ganancias_eirl||0)+"",ventas:(s.ventas||0)+""});setModal(true);};
 
   const guardarCaja=async()=>{
     if(!fc.concepto||!fc.monto||+fc.monto<=0)return;
@@ -437,7 +436,7 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
 
           {mejorSem&&(()=>{const r=(mejorSem.ganancias_codigos||0)+(mejorSem.ganancias_eirl||0)+(mejorSem.ventas||0)-(mejorSem.google_ads||0)-(mejorSem.productos||0);return r>0?<div style={{...S.alert(C.gold),marginBottom:12}}><span style={{fontSize:11,color:C.gold}}>Mejor semana: <b>{semanaRango(mejorSem.semana_inicio)}</b> · resultado <b>{fmt(r)}</b></span></div>:null;})()}
 
-          <button style={{...S.btn(C.accent),width:"100%",padding:"13px",marginBottom:12}} onClick={()=>{setF({semana_inicio:"",google_ads:"",productos:"",ganancias_codigos:"",ganancias_eirl:"",ventas:"",nota:""});setModal(true);}}>+ Registrar semana Fuxion</button>
+          <button style={{...S.btn(C.accent),width:"100%",padding:"13px",marginBottom:12}} onClick={()=>{setF({semana_inicio:"",semana_fin:"",semana_label:"",google_ads:"",productos:"",ganancias_codigos:"",ganancias_eirl:"",ventas:"",nota:""});setModal(true);}}>+ Registrar semana Fuxion</button>
 
           {(fuxionSemanas||[]).length===0&&<div style={{textAlign:"center",padding:30,color:C.muted,fontSize:12}}>Sin semanas registradas</div>}
 
@@ -449,8 +448,8 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
               <div key={s.id} style={{...S.card,borderLeft:"3px solid "+(res>=0?C.emerald:C.danger)}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
                   <div>
-                    <div style={{fontWeight:700,fontSize:14}}>Semana del {fmtF(s.semana_inicio)}</div>
-                    <div style={{fontSize:11,color:C.soft,marginTop:2}}>{semanaRango(s.semana_inicio)}</div>
+                    <div style={{fontWeight:700,fontSize:14}}>{s.semana_label||("Semana del "+fmtF(s.semana_inicio))}</div>
+                    <div style={{fontSize:11,color:C.soft,marginTop:2}}>{fmtF(s.semana_inicio)}{s.semana_fin?" - "+fmtF(s.semana_fin):""}</div>
                     {s.nota&&<div style={{fontSize:11,color:C.soft,marginTop:2}}>{s.nota}</div>}
                   </div>
                   <div style={{textAlign:"right",flexShrink:0}}><div style={{fontWeight:900,fontSize:16,color:res>=0?C.emerald:C.danger}}>{res>=0?"+":""}{fmt(res)}</div><div style={{fontSize:10,color:C.muted}}>resultado</div></div>
@@ -506,8 +505,11 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
       {modal&&(
         <Modal title={f.id?"Editar semana":"Nueva semana Fuxion"} onClose={()=>setModal(false)}>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div><label style={S.lbl2}>Semana que inicia (lunes)</label><input style={S.inp} type="date" value={f.semana_inicio} onChange={e=>uf("semana_inicio",e.target.value)}/></div>
-            {f.semana_inicio&&<div style={{fontSize:11,color:C.accent,marginTop:-6}}>{semanaRango(f.semana_inicio)}</div>}
+            <div style={S.g2}>
+              <div><label style={S.lbl2}>Desde (fecha inicio)</label><input style={S.inp} type="date" value={f.semana_inicio} onChange={e=>uf("semana_inicio",e.target.value)}/></div>
+              <div><label style={S.lbl2}>Hasta (fecha fin)</label><input style={S.inp} type="date" value={f.semana_fin} onChange={e=>uf("semana_fin",e.target.value)}/></div>
+            </div>
+            <div><label style={S.lbl2}>Referencia semana Fuxion (ej: Sem 18-2026)</label><input style={S.inp} value={f.semana_label} onChange={e=>uf("semana_label",e.target.value)} placeholder="Ej: Sem 18-2026, Semana 3 mayo..."/></div>
             <div style={S.hr}/>
             <div style={{fontSize:11,fontWeight:700,color:C.danger,textTransform:"uppercase",letterSpacing:1}}>Inversion</div>
             <div style={S.g2}>
