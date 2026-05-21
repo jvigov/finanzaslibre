@@ -37,8 +37,9 @@ const GASTOS_FIJOS=[
 ];
 const TOTAL_FIJOS=GASTOS_FIJOS.reduce((a,g)=>a+g.monto,0);
 
-const GC=["Alimentacion","Comida afuera","Taxi / Uber","Viaje y combustible","Salud y farmacia","Entretenimiento","Regalo / detalle","Ropa y personal","Suscripciones IA","Educacion","Extraordinario"];
-const IC=["Sueldo SUNAT","Gestiones admin","Fuxion personal","Fuxion EIRL","Venta productos Fuxion","Firu / Bancaje","Otro ingreso"];
+const GC=["Alimentacion","Comida afuera","Taxi / Uber","Viaje y combustible","Salud y farmacia","Entretenimiento","Regalo / detalle","Ropa y personal","Suscripciones IA","Educacion","Compra productos Fuxion","Extraordinario"];
+const IC=["Sueldo SUNAT","Gestiones admin","Venta productos Fuxion","Firu / Bancaje","Otro ingreso"];
+const CAT_FUXION_EX=["Venta productos Fuxion","Compra productos Fuxion"];
 const FT=["Personal","EIRL","Familiar hermano","Familiar pareja","Familiar mama","Familiar papa","Otro"];
 const ESTRATEGIAS=["Pagando puntual","Negociando","En espera","Castigada"];
 const ESTRATEGIA_C={"Pagando puntual":"#10b981","Negociando":"#f59e0b","En espera":"#8b5cf6","Castigada":"#f43f5e"};
@@ -111,22 +112,26 @@ function AuthScreen({onLogin}){
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl}){
+function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
   const mes=curMes();
   const hoy=today();
   const diasMes=new Date(new Date().getFullYear(),new Date().getMonth()+1,0).getDate();
   const diaActual=new Date().getDate();
   const pctMes=Math.round((diaActual/diasMes)*100);
 
-  // Ingresos: solo lo que el usuario registra manualmente + fuxion del mes
-  const ingTxns=txns.filter(t=>t.tipo==="ingreso"&&t.fecha&&t.fecha.startsWith(mes)).reduce((a,t)=>a+t.monto,0);
+  // Usar gastos fijos de BD si existen, sino los hardcodeados
+  const fijosActivos=gastosFijos.length>0?gastosFijos.filter(g=>g.activo):GASTOS_FIJOS;
+  const totalFijos=fijosActivos.reduce((a,g)=>a+g.monto,0);
+
+  // Ingresos: solo lo que el usuario registra manualmente (excluye categorias Fuxion) + fuxion del mes
+  const ingTxns=txns.filter(t=>t.tipo==="ingreso"&&t.fecha&&t.fecha.startsWith(mes)&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
   const fuxMes=(fuxionSemanas||[]).filter(s=>s.semana_inicio&&s.semana_inicio.startsWith(mes));
   const ingFuxMes=fuxMes.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ventas||0),0);
   const ingTotal=ingTxns+ingFuxMes;
 
-  // Gastos
-  const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.startsWith(mes)).reduce((a,t)=>a+t.monto,0);
-  const gastMes=TOTAL_FIJOS+gastVar;
+  // Gastos: excluye categorias Fuxion (compra productos va al modulo Fuxion)
+  const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.startsWith(mes)&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+  const gastMes=totalFijos+gastVar;
   const margen=ingTotal-gastMes;
 
   // Fuxion semana actual
@@ -166,7 +171,7 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl}){
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
         {[
           {label:"Ingresos",val:fmtK(ingTotal),color:C.emerald},
-          {label:"Fijos",val:fmtK(TOTAL_FIJOS),color:C.danger},
+          {label:"Fijos",val:fmtK(totalFijos),color:C.danger},
           {label:"Variables",val:fmtK(gastVar),color:C.warn},
         ].map(p=>(
           <div key={p.label} style={{background:C.surface,borderRadius:12,padding:"10px 12px",border:"1px solid "+p.color+"20"}}>
@@ -230,7 +235,9 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl}){
 }
 
 // ── REGISTRAR ─────────────────────────────────────────────────────────────────
-function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas}){
+function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
+  const fijosActivos=gastosFijos.length>0?gastosFijos.filter(g=>g.activo):GASTOS_FIJOS;
+  const totalFijos=fijosActivos.reduce((a,g)=>a+g.monto,0);
   const [guardado,setGuardado]=useState(false);
   const [mForm,setMForm]=useState({tipo:"gasto",cat:"Alimentacion",monto:"",descripcion:"",fecha:today(),fuente:"Personal"});
   const uf=(k,v)=>setMForm(p=>({...p,[k]:v}));
@@ -256,9 +263,9 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas}){
     return fd>=rangoIni&&fd<=rangoFin;
   });
 
-  const ingMes=filtradas.filter(t=>t.tipo==="ingreso").reduce((a,t)=>a+t.monto,0);
-  const gastVar=filtradas.filter(t=>t.tipo==="gasto").reduce((a,t)=>a+t.monto,0);
-  const gastMes=filtroTipo==="mes"?TOTAL_FIJOS+gastVar:gastVar;
+  const ingMes=filtradas.filter(t=>t.tipo==="ingreso"&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+  const gastVar=filtradas.filter(t=>t.tipo==="gasto"&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+  const gastMes=filtroTipo==="mes"?totalFijos+gastVar:gastVar;
 
   // Fuxion del mes para sumar a ingresos
   const mesActivo=filtroTipo==="mes"?mes:rangoIni.slice(0,7);
@@ -319,9 +326,9 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas}){
       {/* Fijos */}
       {filtroTipo==="mes"&&(
         <div style={S.card}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontWeight:700,fontSize:12}}>Fijos automaticos</span><span style={{fontWeight:800,color:C.danger}}>-{fmt(TOTAL_FIJOS)}</span></div>
-          {GASTOS_FIJOS.map(g=>(
-            <div key={g.nombre} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderTop:"1px solid "+C.border}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontWeight:700,fontSize:12}}>Fijos automaticos</span><span style={{fontWeight:800,color:C.danger}}>-{fmt(totalFijos)}</span></div>
+          {fijosActivos.map((g,i)=>(
+            <div key={g.id||i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderTop:"1px solid "+C.border}}>
               <span style={{fontSize:11,color:C.soft}}>{g.nombre}</span>
               <span style={{fontSize:11,fontWeight:600,color:C.danger}}>-{fmt(g.monto)}</span>
             </div>
@@ -363,8 +370,8 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas}){
 }
 
 // ── FUXION ────────────────────────────────────────────────────────────────────
-function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCajaMovs}){
-  const [vistaFuxion,setVistaFuxion]=useState("semanas"); // "semanas" | "caja"
+function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCajaMovs,txns}){
+  const [vistaFuxion,setVistaFuxion]=useState("semanas");
   const [modal,setModal]=useState(false);
   const [modalCaja,setModalCaja]=useState(false);
   const [f,setF]=useState({semana_inicio:"",semana_fin:"",semana_label:"",google_ads:"",productos:"",ganancias_codigos:"",ganancias_eirl:"",ventas:"",nota:""});
@@ -372,6 +379,15 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
   const uf=(k,v)=>setF(p=>({...p,[k]:v}));
   const ufc=(k,v)=>setFc(p=>({...p,[k]:v}));
   const mes=curMes();
+
+  // Auto-llena ventas y productos del rango cuando cambia inicio o fin
+  const autoFill=(ini,fin)=>{
+    if(!ini)return;
+    const finReal=fin||ini;
+    const ventas=(txns||[]).filter(t=>t.cat==="Venta productos Fuxion"&&t.tipo==="ingreso"&&t.fecha&&t.fecha.split("T")[0]>=ini&&t.fecha.split("T")[0]<=finReal).reduce((a,t)=>a+t.monto,0);
+    const productos=(txns||[]).filter(t=>t.cat==="Compra productos Fuxion"&&t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=ini&&t.fecha.split("T")[0]<=finReal).reduce((a,t)=>a+t.monto,0);
+    setF(p=>({...p,ventas:ventas>0?ventas+"":p.ventas,productos:productos>0?productos+"":p.productos}));
+  };
 
   const semMes=(fuxionSemanas||[]).filter(s=>s.semana_inicio&&s.semana_inicio.startsWith(mes));
   const totInv=semMes.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
@@ -393,6 +409,15 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
   const guardarSemana=async()=>{
     if(!f.semana_inicio)return;
     const body={user_id:userId,semana_inicio:f.semana_inicio,semana_fin:f.semana_fin||"",semana_label:f.semana_label||"",google_ads:+f.google_ads||0,productos:+f.productos||0,ganancias_codigos:+f.ganancias_codigos||0,ganancias_eirl:+f.ganancias_eirl||0,ventas:+f.ventas||0,nota:f.nota||""};
+
+  // Auto-calcula ventas y productos del rango cuando cambia semana_inicio o semana_fin
+  const calcularDesdeRango=(ini,fin,txns)=>{
+    if(!ini)return;
+    const finReal=fin||ini;
+    const ventas=txns.filter(t=>t.cat==="Venta productos Fuxion"&&t.tipo==="ingreso"&&t.fecha>=ini&&t.fecha<=finReal).reduce((a,t)=>a+t.monto,0);
+    const productos=txns.filter(t=>t.cat==="Compra productos Fuxion"&&t.tipo==="gasto"&&t.fecha>=ini&&t.fecha<=finReal).reduce((a,t)=>a+t.monto,0);
+    return{ventas,productos};
+  };
     if(f.id){await sb.update("fuxion_semanas",f.id,body,sesion.token);setFuxionSemanas(p=>p.map(s=>s.id===f.id?{...body,id:f.id}:s));}
     else{const saved=await sb.insert("fuxion_semanas",body,sesion.token);if(saved&&saved.id)setFuxionSemanas(p=>[saved,...p]);}
     setModal(false);
@@ -452,7 +477,10 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
                     <div style={{fontSize:11,color:C.soft,marginTop:2}}>{fmtF(s.semana_inicio)}{s.semana_fin?" - "+fmtF(s.semana_fin):""}</div>
                     {s.nota&&<div style={{fontSize:11,color:C.soft,marginTop:2}}>{s.nota}</div>}
                   </div>
-                  <div style={{textAlign:"right",flexShrink:0}}><div style={{fontWeight:900,fontSize:16,color:res>=0?C.emerald:C.danger}}>{res>=0?"+":""}{fmt(res)}</div><div style={{fontSize:10,color:C.muted}}>resultado</div></div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontWeight:900,fontSize:22,color:res>=0?C.emerald:C.danger,lineHeight:1}}>{res>=0?"+":""}{fmt(res)}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>resultado</div>
+                  </div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,marginBottom:10}}>
                   {s.google_ads>0&&<div style={{color:C.muted}}>Google Ads: <b style={{color:C.danger}}>-{fmt(s.google_ads)}</b></div>}
@@ -506,8 +534,8 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
         <Modal title={f.id?"Editar semana":"Nueva semana Fuxion"} onClose={()=>setModal(false)}>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <div style={S.g2}>
-              <div><label style={S.lbl2}>Desde (fecha inicio)</label><input style={S.inp} type="date" value={f.semana_inicio} onChange={e=>uf("semana_inicio",e.target.value)}/></div>
-              <div><label style={S.lbl2}>Hasta (fecha fin)</label><input style={S.inp} type="date" value={f.semana_fin} onChange={e=>uf("semana_fin",e.target.value)}/></div>
+              <div><label style={S.lbl2}>Desde (fecha inicio)</label><input style={S.inp} type="date" value={f.semana_inicio} onChange={e=>{uf("semana_inicio",e.target.value);autoFill(e.target.value,f.semana_fin);}}/></div>
+              <div><label style={S.lbl2}>Hasta (fecha fin)</label><input style={S.inp} type="date" value={f.semana_fin} onChange={e=>{uf("semana_fin",e.target.value);autoFill(f.semana_inicio,e.target.value);}}/></div>
             </div>
             <div><label style={S.lbl2}>Referencia semana Fuxion (ej: Sem 18-2026)</label><input style={S.inp} value={f.semana_label} onChange={e=>uf("semana_label",e.target.value)} placeholder="Ej: Sem 18-2026, Semana 3 mayo..."/></div>
             <div style={S.hr}/>
@@ -756,9 +784,47 @@ function TabCobrar({userId,sesion,cobrar,setCobrar,txns,setTxns}){
 }
 
 // ── MI PLAN ───────────────────────────────────────────────────────────────────
-function TabPlan({perfil,deudas,extras,sesion,setExtras}){
+function TabPlan({perfil,deudas,extras,sesion,setExtras,gastosFijos,setGastosFijos,userId}){
   const [editExtra,setEditExtra]=useState(null);
   const [fe,setFe]=useState({mes:"",concepto:"",monto:""});
+  const [modalFijo,setModalFijo]=useState(false);
+  const [fijo,setFijo]=useState({nombre:"",monto:"",activo:true});
+  const [editFijo,setEditFijo]=useState(null);
+
+  const FIJOS_DEFAULT=[
+    {nombre:"Cuota Extracash Interbank",monto:2077},
+    {nombre:"Ruleteo Platinum (S/21k x 1.5%)",monto:315},
+    {nombre:"ChatGPT",monto:85},{nombre:"Claude",monto:85},
+    {nombre:"Entel postpago",monto:80},{nombre:"Dentista",monto:200},
+    {nombre:"Contabilidad EIRL",monto:236},{nombre:"DirecTV Go",monto:83.9},
+  ];
+
+  // Si no hay gastos fijos en BD, usar los defaults como referencia visual
+  const fijosActivos=gastosFijos.length>0?gastosFijos:FIJOS_DEFAULT.map(g=>({...g,activo:true,id:g.nombre}));
+  const totalFijosActivos=fijosActivos.filter(g=>g.activo).reduce((a,g)=>a+g.monto,0);
+
+  const guardarFijo=async()=>{
+    if(!fijo.nombre||!fijo.monto)return;
+    const body={user_id:userId,nombre:fijo.nombre,monto:+fijo.monto,activo:fijo.activo};
+    if(editFijo){
+      await sb.update("gastos_fijos",editFijo,body,sesion.token);
+      setGastosFijos(p=>p.map(g=>g.id===editFijo?{...body,id:editFijo}:g));
+    } else {
+      const saved=await sb.insert("gastos_fijos",body,sesion.token);
+      if(saved&&saved.id)setGastosFijos(p=>[...p,saved]);
+    }
+    setModalFijo(false);setEditFijo(null);setFijo({nombre:"",monto:"",activo:true});
+  };
+  const toggleFijo=async(g)=>{
+    if(!g.id||typeof g.id==="string")return; // defaults no editables directamente
+    await sb.update("gastos_fijos",g.id,{activo:!g.activo},sesion.token);
+    setGastosFijos(p=>p.map(x=>x.id===g.id?{...x,activo:!x.activo}:x));
+  };
+  const delFijo=async(id)=>{
+    if(!id||typeof id==="string")return;
+    await sb.delete("gastos_fijos",id,sesion.token);
+    setGastosFijos(p=>p.filter(g=>g.id!==id));
+  };
 
   const guardarExtra=async()=>{
     if(!fe.mes||!fe.concepto||!fe.monto)return;
@@ -768,7 +834,6 @@ function TabPlan({perfil,deudas,extras,sesion,setExtras}){
     setEditExtra(null);
   };
 
-  // Deduplicar extras por mes+concepto (por si hay duplicados en BD)
   const extrasUnicos=extras.filter((e,i,arr)=>arr.findIndex(x=>x.mes===e.mes&&x.concepto===e.concepto)===i);
   const proximos=extrasUnicos.filter(e=>e.mes>=curMes()).sort((a,b)=>a.mes.localeCompare(b.mes));
 
@@ -782,7 +847,48 @@ function TabPlan({perfil,deudas,extras,sesion,setExtras}){
         </div>
       )}
 
-      {/* Calendario extraordinarios */}
+      {/* Gastos fijos editables */}
+      <div style={S.card}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div><div style={S.lbl}>Gastos fijos mensuales</div></div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <span style={{fontWeight:700,color:C.danger,fontSize:13}}>{fmt(totalFijosActivos)}</span>
+            <button style={S.bsm(C.accent)} onClick={()=>{setFijo({nombre:"",monto:"",activo:true});setEditFijo(null);setModalFijo(true);}}>+ Agregar</button>
+          </div>
+        </div>
+        {fijosActivos.map((g,i)=>(
+          <div key={g.id||i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid "+C.border,opacity:g.activo?1:0.4}}>
+            <div style={{display:"flex",gap:8,alignItems:"center",flex:1,minWidth:0}}>
+              <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:g.activo?C.text:C.muted}}>{g.nombre}</span>
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+              <span style={{fontWeight:600,color:g.activo?C.danger:C.muted,fontSize:12}}>{fmt(g.monto)}</span>
+              {typeof g.id!=="string"&&<>
+                <button style={S.bsm(g.activo?C.warn:C.emerald)} onClick={()=>toggleFijo(g)}>{g.activo?"Pausar":"Activar"}</button>
+                <button style={S.bsm(C.accent)} onClick={()=>{setFijo({nombre:g.nombre,monto:g.monto+"",activo:g.activo});setEditFijo(g.id);setModalFijo(true);}}>Editar</button>
+                <button style={S.bsm(C.danger)} onClick={()=>delFijo(g.id)}>x</button>
+              </>}
+            </div>
+          </div>
+        ))}
+        {gastosFijos.length===0&&<div style={{fontSize:10,color:C.muted,marginTop:8}}>Estos son tus gastos fijos de referencia. Agrega los tuyos para hacerlos editables.</div>}
+      </div>
+
+      {modalFijo&&(
+        <Modal title={editFijo?"Editar gasto fijo":"Nuevo gasto fijo"} onClose={()=>{setModalFijo(false);setEditFijo(null);}}>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div><label style={S.lbl2}>Nombre</label><input style={S.inp} value={fijo.nombre} onChange={e=>setFijo(p=>({...p,nombre:e.target.value}))} placeholder="Ej: Netflix, Agua, Gym..."/></div>
+            <div><label style={S.lbl2}>Monto mensual (S/)</label><input style={S.inp} type="number" value={fijo.monto} onChange={e=>setFijo(p=>({...p,monto:e.target.value}))} placeholder="0"/></div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input type="checkbox" id="activofijo" checked={fijo.activo} onChange={e=>setFijo(p=>({...p,activo:e.target.checked}))}/>
+              <label htmlFor="activofijo" style={{fontSize:12,color:C.soft}}>Activo este mes</label>
+            </div>
+            <button style={{...S.btn(C.accent),width:"100%",padding:"13px"}} onClick={guardarFijo}>Guardar</button>
+          </div>
+        </Modal>
+      )}
+
+
       <div style={S.card}>
         <div style={S.lbl}>Calendario de ingresos extraordinarios</div>
         {proximos.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>Sin extraordinarios proximos</div>}
@@ -851,6 +957,7 @@ export default function App(){
   const [extras,setExtras]=useState([]);
   const [fuxionSemanas,setFuxionSemanas]=useState([]);
   const [cajaMovs,setCajaMovs]=useState([]);
+  const [gastosFijos,setGastosFijos]=useState([]);
   const [loading,setLoading]=useState(false);
   const [tab,setTab]=useState(0);
 
@@ -891,6 +998,7 @@ export default function App(){
       sb.select("cobrar","select=*&user_id=eq."+uid,tok).then(d=>setCobrar(d||[])),
       sb.select("fuxion_semanas","select=*&user_id=eq."+uid+"&order=semana_inicio.desc",tok).then(d=>setFuxionSemanas(d||[])).catch(()=>setFuxionSemanas([])),
       sb.select("caja_eirl","select=*&user_id=eq."+uid+"&order=fecha.desc",tok).then(d=>setCajaMovs(d||[])).catch(()=>setCajaMovs([])),
+      sb.select("gastos_fijos","select=*&user_id=eq."+uid+"&order=created_at.asc",tok).then(d=>setGastosFijos(d||[])).catch(()=>setGastosFijos([])),
       sb.select("extraordinarios","select=*&user_id=eq."+uid+"&order=mes.asc",tok).then(async d=>{
         if(d&&d.length>0){setExtras(d);return;}
         const base=[
@@ -906,7 +1014,7 @@ export default function App(){
   },[sesion,appState]);
 
   const onLogin=(s)=>{setSesion(s);setAppState("ready");};
-  const onLogout=()=>{setSesion(null);setPerfil({});setDeudas([]);setTxns([]);setCobrar([]);setExtras([]);setFuxionSemanas([]);setCajaMovs([]);setAppState("auth");};
+  const onLogout=()=>{setSesion(null);setPerfil({});setDeudas([]);setTxns([]);setCobrar([]);setExtras([]);setFuxionSemanas([]);setCajaMovs([]);setGastosFijos([]);setAppState("auth");};
 
   const totalDeuda=deudas.reduce((a,d)=>a+d.saldo,0);
   const totalCobrar=cobrar.filter(c=>c.estado!=="cobrado"&&(c.moneda||"PEN")==="PEN").reduce((a,c)=>a+(c.monto-(c.abonado||0)),0);
@@ -947,12 +1055,12 @@ export default function App(){
       <nav style={S.nav}>{TABS.map((t,i)=><button key={i} style={S.nb(tab===i)} onClick={()=>setTab(i)}>{t}</button>)}</nav>
       {loading&&<div style={{textAlign:"center",padding:16,color:C.muted,fontSize:12}}>Cargando...</div>}
       <div style={S.page}>
-        {tab===0&&<TabDashboard perfil={perfil} txns={txns} fuxionSemanas={fuxionSemanas} cajaEirl={cajaEirl}/>}
-        {tab===1&&<TabRegistrar userId={uid} sesion={sesion} txns={txns} setTxns={setTxns} fuxionSemanas={fuxionSemanas}/>}
-        {tab===2&&<TabFuxion userId={uid} sesion={sesion} fuxionSemanas={fuxionSemanas} setFuxionSemanas={setFuxionSemanas} cajaMovs={cajaMovs} setCajaMovs={setCajaMovs}/>}
+        {tab===0&&<TabDashboard perfil={perfil} txns={txns} fuxionSemanas={fuxionSemanas} cajaEirl={cajaEirl} gastosFijos={gastosFijos}/>}
+        {tab===1&&<TabRegistrar userId={uid} sesion={sesion} txns={txns} setTxns={setTxns} fuxionSemanas={fuxionSemanas} gastosFijos={gastosFijos}/>}
+        {tab===2&&<TabFuxion userId={uid} sesion={sesion} fuxionSemanas={fuxionSemanas} setFuxionSemanas={setFuxionSemanas} cajaMovs={cajaMovs} setCajaMovs={setCajaMovs} txns={txns}/>}
         {tab===3&&<TabDeudas userId={uid} sesion={sesion} deudas={deudas} setDeudas={setDeudas}/>}
         {tab===4&&<TabCobrar userId={uid} sesion={sesion} cobrar={cobrar} setCobrar={setCobrar} txns={txns} setTxns={setTxns}/>}
-        {tab===5&&<TabPlan perfil={perfil} deudas={deudas} extras={extras} sesion={sesion} setExtras={setExtras}/>}
+        {tab===5&&<TabPlan perfil={perfil} deudas={deudas} extras={extras} sesion={sesion} setExtras={setExtras} gastosFijos={gastosFijos} setGastosFijos={setGastosFijos} userId={uid}/>}
       </div>
     </div>
   );
