@@ -128,21 +128,22 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
   const fuxMes=(fuxionSemanas||[]).filter(s=>s.semana_inicio&&s.semana_inicio.startsWith(mes));
   const ingFuxMes=fuxMes.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ventas||0),0);
   const ingTotal=ingTxns+ingFuxMes;
-
-  // Gastos: excluye categorias Fuxion (compra productos va al modulo Fuxion)
   const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.startsWith(mes)&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
   const gastMes=totalFijos+gastVar;
   const margen=ingTotal-gastMes;
 
-  // Fuxion semana actual
-  const semAct=(fuxionSemanas||[]).find(s=>{
-    if(!s.semana_inicio)return false;
-    const ini=new Date(s.semana_inicio);const fin=new Date(ini);fin.setDate(fin.getDate()+6);
-    return new Date(hoy)>=ini&&new Date(hoy)<=fin;
-  });
-  const fuxInv=semAct?((semAct.google_ads||0)+(semAct.productos||0)):0;
-  const fuxRet=semAct?((semAct.ganancias_codigos||0)+(semAct.ganancias_eirl||0)+(semAct.ventas||0)):0;
-  const fuxRes=fuxRet-fuxInv;
+  // Fuxion: periodo activo = semanas mas recientes agrupadas por periodo
+  const todasSems=fuxionSemanas||[];
+  const extractSemNum=(label)=>{if(!label)return null;const m=label.match(/\b(\d{1,2})\b/);return m?parseInt(m[1]):null;};
+  const semToPeriodo=(n)=>n?Math.ceil(n/4):null;
+  const semNums=todasSems.map(s=>extractSemNum(s.semana_label)).filter(Boolean);
+  const maxSemNum=semNums.length>0?Math.max(...semNums):null;
+  const periodoActivo=semToPeriodo(maxSemNum);
+  const semsDelPeriodo=periodoActivo?todasSems.filter(s=>{const n=extractSemNum(s.semana_label);return n&&semToPeriodo(n)===periodoActivo;}):[];
+  const fuxInvPer=semsDelPeriodo.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
+  const fuxRetPer=semsDelPeriodo.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
+  const fuxResPer=fuxRetPer-fuxInvPer;
+  const semMasReciente=todasSems.length>0?todasSems[0]:null;
 
   // Ultimos 3 movimientos
   const recientes=[...txns].sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")).slice(0,3);
@@ -181,20 +182,23 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
         ))}
       </div>
 
-      {/* Fuxion semana actual */}
-      <div style={{...S.card,border:"1px solid "+(semAct?(fuxRes>=0?C.emerald:C.danger):C.border)+"40"}}>
-        <div style={S.lbl}>Fuxion · semana actual</div>
-        {semAct?(
+      {/* Fuxion — Periodo activo */}
+      <div style={{...S.card,border:"1px solid "+(periodoActivo?(fuxResPer>=0?C.emerald:C.danger):C.border)+"40"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:periodoActivo?10:0}}>
+          <div style={S.lbl}>Fuxion{periodoActivo?` · Periodo ${periodoActivo}`:""}</div>
+          {periodoActivo&&<span style={{fontSize:10,color:C.muted}}>Sem {(periodoActivo-1)*4+1}-{periodoActivo*4} · {semsDelPeriodo.length}/4 sem</span>}
+        </div>
+        {periodoActivo?(
           <div>
-            <div style={{fontSize:11,color:C.soft,marginBottom:10}}>{semanaRango(semAct.semana_inicio)}</div>
             <div style={S.g3}>
-              <div style={S.box(C.danger)}><div style={S.bv(C.danger,15)}>{fmtK(fuxInv)}</div><div style={S.bl}>Invertido</div></div>
-              <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,15)}>{fmtK(fuxRet)}</div><div style={S.bl}>Retorno</div></div>
-              <div style={S.box(fuxRes>=0?C.emerald:C.danger)}><div style={S.bv(fuxRes>=0?C.emerald:C.danger,15)}>{fuxRes>=0?"+":""}{fmtK(fuxRes)}</div><div style={S.bl}>Resultado</div></div>
+              <div style={S.box(C.danger)}><div style={S.bv(C.danger,15)}>{fmtK(fuxInvPer)}</div><div style={S.bl}>Invertido</div></div>
+              <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,15)}>{fmtK(fuxRetPer)}</div><div style={S.bl}>Retorno</div></div>
+              <div style={S.box(fuxResPer>=0?C.emerald:C.danger)}><div style={S.bv(fuxResPer>=0?C.emerald:C.danger,15)}>{fuxResPer>=0?"+":""}{fmtK(fuxResPer)}</div><div style={S.bl}>Resultado</div></div>
             </div>
+            {semMasReciente&&<div style={{fontSize:11,color:C.soft,marginTop:8}}>Ultima sem: <b>{semMasReciente.semana_label||fmtF(semMasReciente.semana_inicio)}</b></div>}
           </div>
         ):(
-          <div style={{textAlign:"center",padding:"12px 0",color:C.muted,fontSize:12}}>Sin registro esta semana · Ve a Fuxion para agregar</div>
+          <div style={{textAlign:"center",padding:"12px 0",color:C.muted,fontSize:12}}>Sin semanas registradas · Ve a Fuxion para agregar</div>
         )}
       </div>
 
@@ -370,17 +374,20 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
 }
 
 // ── FUXION ────────────────────────────────────────────────────────────────────
-function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCajaMovs,txns}){
-  const [vistaFuxion,setVistaFuxion]=useState("semanas");
+function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCajaMovs,txns,perfil,setPerfil}){
+  const [vista,setVista]=useState("semanas"); // "semanas" | "periodos" | "filtro" | "caja"
   const [modal,setModal]=useState(false);
   const [modalCaja,setModalCaja]=useState(false);
+  const [modalAjuste,setModalAjuste]=useState(false);
+  const [ajusteVal,setAjusteVal]=useState("");
+  const [filtroDesde,setFiltroDesde]=useState("");
+  const [filtroHasta,setFiltroHasta]=useState("");
   const [f,setF]=useState({semana_inicio:"",semana_fin:"",semana_label:"",google_ads:"",productos:"",ganancias_codigos:"",ganancias_eirl:"",ventas:"",nota:""});
   const [fc,setFc]=useState({fecha:today(),concepto:"",monto:"",tipo:"salida"});
   const uf=(k,v)=>setF(p=>({...p,[k]:v}));
   const ufc=(k,v)=>setFc(p=>({...p,[k]:v}));
-  const mes=curMes();
 
-  // Auto-llena ventas y productos del rango cuando cambia inicio o fin
+  // Auto-llena ventas y productos del rango de fechas
   const autoFill=(ini,fin)=>{
     if(!ini)return;
     const finReal=fin||ini;
@@ -389,35 +396,63 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
     setF(p=>({...p,ventas:ventas>0?ventas+"":p.ventas,productos:productos>0?productos+"":p.productos}));
   };
 
-  const semMes=(fuxionSemanas||[]).filter(s=>s.semana_inicio&&s.semana_inicio.startsWith(mes));
-  const totInv=semMes.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
-  const totRet=semMes.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
-  const totRes=totRet-totInv;
+  // Extrae numero de semana Fuxion del label (ej: "Sem 19-2026" → 19)
+  const extractSemNum=(label)=>{
+    if(!label)return null;
+    const m=label.match(/\b(\d{1,2})\b/);
+    return m?parseInt(m[1]):null;
+  };
 
-  // Caja EIRL: automaticos de fuxion + manuales
+  // Calcula periodo Fuxion desde numero de semana (sem 17-20 = P5, 21-24 = P6...)
+  const semToPeriodo=(numSem)=>numSem?Math.ceil(numSem/4):null;
+
+  // Caja EIRL
   const cajaAuto=(fuxionSemanas||[]).reduce((a,s)=>a+(s.ganancias_eirl||0),0);
-  const cajaManualEntradas=(cajaMovs||[]).filter(m=>m.tipo==="entrada").reduce((a,m)=>a+m.monto,0);
-  const cajaManualSalidas=(cajaMovs||[]).filter(m=>m.tipo==="salida").reduce((a,m)=>a+m.monto,0);
-  const cajaTotal=cajaAuto+cajaManualEntradas-cajaManualSalidas;
+  const cajaManualE=(cajaMovs||[]).filter(m=>m.tipo==="entrada").reduce((a,m)=>a+m.monto,0);
+  const cajaManualS=(cajaMovs||[]).filter(m=>m.tipo==="salida").reduce((a,m)=>a+m.monto,0);
+  const cajaAjuste=perfil.caja_eirl_ajuste||0;
+  const cajaTotal=cajaAuto+cajaManualE-cajaManualS+cajaAjuste;
 
+  // Mejor semana historica
   const mejorSem=(fuxionSemanas||[]).length>0?(fuxionSemanas||[]).reduce((best,s)=>{
     const r=(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0)-(s.google_ads||0)-(s.productos||0);
     const br=(best.ganancias_codigos||0)+(best.ganancias_eirl||0)+(best.ventas||0)-(best.google_ads||0)-(best.productos||0);
     return r>br?s:best;
   }):null;
 
+  // Total TODAS las semanas (sin filtro de mes)
+  const todasSems=fuxionSemanas||[];
+  const totInvTotal=todasSems.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
+  const totRetTotal=todasSems.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
+  const totResTotal=totRetTotal-totInvTotal;
+
+  // Agrupar semanas por periodo
+  const periodos={};
+  todasSems.forEach(s=>{
+    const num=extractSemNum(s.semana_label);
+    const p=semToPeriodo(num)||0;
+    if(!periodos[p])periodos[p]={semanas:[],inv:0,ret:0};
+    periodos[p].semanas.push(s);
+    periodos[p].inv+=(s.google_ads||0)+(s.productos||0);
+    periodos[p].ret+=(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0);
+  });
+  const periodosOrdenados=Object.entries(periodos).sort((a,b)=>Number(b[0])-Number(a[0]));
+
+  // Periodo activo = el de mayor numero con semanas registradas
+  const periodoActivo=periodosOrdenados.length>0?Number(periodosOrdenados[0][0]):null;
+
+  // Filtro personalizado por label de semana
+  const semsFiltradas=filtroDesde&&filtroHasta?todasSems.filter(s=>{
+    const num=extractSemNum(s.semana_label);
+    return num&&num>=parseInt(filtroDesde)&&num<=parseInt(filtroHasta);
+  }):[];
+  const filtInv=semsFiltradas.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
+  const filtRet=semsFiltradas.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
+  const filtRes=filtRet-filtInv;
+
   const guardarSemana=async()=>{
     if(!f.semana_inicio)return;
     const body={user_id:userId,semana_inicio:f.semana_inicio,semana_fin:f.semana_fin||"",semana_label:f.semana_label||"",google_ads:+f.google_ads||0,productos:+f.productos||0,ganancias_codigos:+f.ganancias_codigos||0,ganancias_eirl:+f.ganancias_eirl||0,ventas:+f.ventas||0,nota:f.nota||""};
-
-  // Auto-calcula ventas y productos del rango cuando cambia semana_inicio o semana_fin
-  const calcularDesdeRango=(ini,fin,txns)=>{
-    if(!ini)return;
-    const finReal=fin||ini;
-    const ventas=txns.filter(t=>t.cat==="Venta productos Fuxion"&&t.tipo==="ingreso"&&t.fecha>=ini&&t.fecha<=finReal).reduce((a,t)=>a+t.monto,0);
-    const productos=txns.filter(t=>t.cat==="Compra productos Fuxion"&&t.tipo==="gasto"&&t.fecha>=ini&&t.fecha<=finReal).reduce((a,t)=>a+t.monto,0);
-    return{ventas,productos};
-  };
     if(f.id){await sb.update("fuxion_semanas",f.id,body,sesion.token);setFuxionSemanas(p=>p.map(s=>s.id===f.id?{...body,id:f.id}:s));}
     else{const saved=await sb.insert("fuxion_semanas",body,sesion.token);if(saved&&saved.id)setFuxionSemanas(p=>[saved,...p]);}
     setModal(false);
@@ -433,65 +468,118 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
   };
   const delCaja=async(id)=>{await sb.delete("caja_eirl",id,sesion.token);setCajaMovs(p=>p.filter(m=>m.id!==id));};
 
+  const guardarAjuste=async()=>{
+    const val=parseFloat(ajusteVal)||0;
+    await sb.update("perfiles",perfil.id,{caja_eirl_ajuste:val},sesion.token);
+    setPerfil(p=>({...p,caja_eirl_ajuste:val}));
+    setModalAjuste(false);
+  };
+
   const inv2=(+f.google_ads||0)+(+f.productos||0);
   const ret2=(+f.ganancias_codigos||0)+(+f.ganancias_eirl||0)+(+f.ventas||0);
   const res2=ret2-inv2;
 
+  const SemCard=({s})=>{
+    const inv=(s.google_ads||0)+(s.productos||0);
+    const ret=(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0);
+    const res=ret-inv;
+    return(
+      <div style={{...S.card,borderLeft:"3px solid "+(res>=0?C.emerald:C.danger)}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:14}}>{s.semana_label||("Sem "+fmtF(s.semana_inicio))}</div>
+            <div style={{fontSize:11,color:C.soft,marginTop:2}}>{fmtF(s.semana_inicio)}{s.semana_fin?" - "+fmtF(s.semana_fin):""}</div>
+            {s.nota&&<div style={{fontSize:11,color:C.soft,marginTop:2}}>{s.nota}</div>}
+          </div>
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{fontWeight:900,fontSize:22,color:res>=0?C.emerald:C.danger,lineHeight:1}}>{res>=0?"+":""}{fmt(res)}</div>
+            <div style={{fontSize:10,color:C.muted,marginTop:2}}>resultado</div>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,marginBottom:10}}>
+          {s.google_ads>0&&<div style={{color:C.muted}}>Google Ads: <b style={{color:C.danger}}>-{fmt(s.google_ads)}</b></div>}
+          {s.productos>0&&<div style={{color:C.muted}}>Productos: <b style={{color:C.danger}}>-{fmt(s.productos)}</b></div>}
+          {s.ganancias_codigos>0&&<div style={{color:C.muted}}>Gan. codigos: <b style={{color:C.emerald}}>+{fmt(s.ganancias_codigos)}</b></div>}
+          {s.ganancias_eirl>0&&<div style={{color:C.muted}}>Gan. EIRL: <b style={{color:C.purple}}>+{fmt(s.ganancias_eirl)}</b></div>}
+          {s.ventas>0&&<div style={{color:C.muted}}>Ventas: <b style={{color:C.emerald}}>+{fmt(s.ventas)}</b></div>}
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <button style={S.bsm(C.accent)} onClick={()=>editSemana(s)}>Editar</button>
+          <button style={S.bsm(C.danger)} onClick={()=>delSemana(s.id)}>x</button>
+        </div>
+      </div>
+    );
+  };
+
   return(
     <div>
       {/* Tabs internas */}
-      <div style={{display:"flex",gap:6,marginBottom:14}}>
-        {[["semanas","Semanas Fuxion"],["caja","Caja EIRL"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setVistaFuxion(k)} style={{flex:1,padding:"10px",borderRadius:10,border:"1px solid "+(vistaFuxion===k?C.accent:C.border),background:vistaFuxion===k?C.accent+"18":C.surface,color:vistaFuxion===k?C.accent:C.muted,fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4,marginBottom:14}}>
+        {[["semanas","Semanas"],["periodos","Periodos"],["filtro","Filtro"],["caja","Caja EIRL"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setVista(k)} style={{padding:"9px 4px",borderRadius:10,border:"1px solid "+(vista===k?C.accent:C.border),background:vista===k?C.accent+"18":C.surface,color:vista===k?C.accent:C.muted,fontWeight:700,fontSize:10,cursor:"pointer"}}>{l}</button>
         ))}
       </div>
 
-      {vistaFuxion==="semanas"&&(
+      {/* VISTA SEMANAS */}
+      {vista==="semanas"&&(
         <div>
-          {/* Resumen mes */}
           <div style={S.card}>
-            <div style={S.lbl}>Fuxion · {mes}</div>
+            <div style={S.lbl}>Total historico Fuxion</div>
             <div style={S.g3}>
-              <div style={S.box(C.danger)}><div style={S.bv(C.danger,15)}>{fmtK(totInv)}</div><div style={S.bl}>Invertido</div></div>
-              <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,15)}>{fmtK(totRet)}</div><div style={S.bl}>Retorno</div></div>
-              <div style={S.box(totRes>=0?C.emerald:C.danger)}><div style={S.bv(totRes>=0?C.emerald:C.danger,15)}>{totRes>=0?"+":""}{fmtK(totRes)}</div><div style={S.bl}>Resultado</div></div>
+              <div style={S.box(C.danger)}><div style={S.bv(C.danger,15)}>{fmtK(totInvTotal)}</div><div style={S.bl}>Invertido</div></div>
+              <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,15)}>{fmtK(totRetTotal)}</div><div style={S.bl}>Retorno</div></div>
+              <div style={S.box(totResTotal>=0?C.emerald:C.danger)}><div style={S.bv(totResTotal>=0?C.emerald:C.danger,15)}>{totResTotal>=0?"+":""}{fmtK(totResTotal)}</div><div style={S.bl}>Resultado</div></div>
             </div>
-            {semMes.length>0&&<div style={{fontSize:11,color:C.soft,marginTop:10}}>Promedio semanal: <b style={{color:C.accent}}>{fmtK(totRes/semMes.length)}</b> · {semMes.length} semana(s)</div>}
+            {todasSems.length>0&&<div style={{fontSize:11,color:C.soft,marginTop:10}}>{todasSems.length} semana(s) registrada(s) · Promedio: <b style={{color:C.accent}}>{fmtK(totResTotal/todasSems.length)}</b></div>}
           </div>
-
-          {mejorSem&&(()=>{const r=(mejorSem.ganancias_codigos||0)+(mejorSem.ganancias_eirl||0)+(mejorSem.ventas||0)-(mejorSem.google_ads||0)-(mejorSem.productos||0);return r>0?<div style={{...S.alert(C.gold),marginBottom:12}}><span style={{fontSize:11,color:C.gold}}>Mejor semana: <b>{semanaRango(mejorSem.semana_inicio)}</b> · resultado <b>{fmt(r)}</b></span></div>:null;})()}
-
+          {mejorSem&&(()=>{const r=(mejorSem.ganancias_codigos||0)+(mejorSem.ganancias_eirl||0)+(mejorSem.ventas||0)-(mejorSem.google_ads||0)-(mejorSem.productos||0);return r>0?<div style={{...S.alert(C.gold),marginBottom:12}}><span style={{fontSize:11,color:C.gold}}>Mejor semana: <b>{mejorSem.semana_label||fmtF(mejorSem.semana_inicio)}</b> · resultado <b>{fmt(r)}</b></span></div>:null;})()}
           <button style={{...S.btn(C.accent),width:"100%",padding:"13px",marginBottom:12}} onClick={()=>{setF({semana_inicio:"",semana_fin:"",semana_label:"",google_ads:"",productos:"",ganancias_codigos:"",ganancias_eirl:"",ventas:"",nota:""});setModal(true);}}>+ Registrar semana Fuxion</button>
+          {todasSems.length===0&&<div style={{textAlign:"center",padding:30,color:C.muted,fontSize:12}}>Sin semanas registradas</div>}
+          {todasSems.map(s=><SemCard key={s.id} s={s}/>)}
+        </div>
+      )}
 
-          {(fuxionSemanas||[]).length===0&&<div style={{textAlign:"center",padding:30,color:C.muted,fontSize:12}}>Sin semanas registradas</div>}
-
-          {(fuxionSemanas||[]).map(s=>{
-            const inv=(s.google_ads||0)+(s.productos||0);
-            const ret=(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0);
-            const res=ret-inv;
+      {/* VISTA PERIODOS */}
+      {vista==="periodos"&&(
+        <div>
+          <div style={{...S.alert(C.accent),marginBottom:12}}>
+            <span style={{fontSize:11,color:C.accent}}>Periodo activo: <b>Periodo {periodoActivo}</b> · Sem {(periodoActivo-1)*4+1}-{periodoActivo*4}</span>
+          </div>
+          {periodosOrdenados.length===0&&<div style={{textAlign:"center",padding:30,color:C.muted,fontSize:12}}>Sin semanas registradas aun</div>}
+          {periodosOrdenados.map(([p,data])=>{
+            const res=data.ret-data.inv;
+            const esActivo=Number(p)===periodoActivo;
             return(
-              <div key={s.id} style={{...S.card,borderLeft:"3px solid "+(res>=0?C.emerald:C.danger)}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <div key={p} style={{...S.card,border:"1px solid "+(esActivo?C.accent:C.border)+(esActivo?"":""),borderLeft:"3px solid "+(res>=0?C.emerald:C.danger)}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                   <div>
-                    <div style={{fontWeight:700,fontSize:14}}>{s.semana_label||("Semana del "+fmtF(s.semana_inicio))}</div>
-                    <div style={{fontSize:11,color:C.soft,marginTop:2}}>{fmtF(s.semana_inicio)}{s.semana_fin?" - "+fmtF(s.semana_fin):""}</div>
-                    {s.nota&&<div style={{fontSize:11,color:C.soft,marginTop:2}}>{s.nota}</div>}
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <span style={{fontWeight:800,fontSize:15}}>Periodo {p}</span>
+                      {esActivo&&<span style={S.tag(C.accent)}>Activo</span>}
+                    </div>
+                    <div style={{fontSize:11,color:C.muted}}>Sem {(Number(p)-1)*4+1} - {Number(p)*4} · {data.semanas.length} semana(s)</div>
                   </div>
-                  <div style={{textAlign:"right",flexShrink:0}}>
-                    <div style={{fontWeight:900,fontSize:22,color:res>=0?C.emerald:C.danger,lineHeight:1}}>{res>=0?"+":""}{fmt(res)}</div>
-                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>resultado</div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontWeight:900,fontSize:22,color:res>=0?C.emerald:C.danger}}>{res>=0?"+":""}{fmt(res)}</div>
+                    <div style={{fontSize:10,color:C.muted}}>resultado</div>
                   </div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,marginBottom:10}}>
-                  {s.google_ads>0&&<div style={{color:C.muted}}>Google Ads: <b style={{color:C.danger}}>-{fmt(s.google_ads)}</b></div>}
-                  {s.productos>0&&<div style={{color:C.muted}}>Productos: <b style={{color:C.danger}}>-{fmt(s.productos)}</b></div>}
-                  {s.ganancias_codigos>0&&<div style={{color:C.muted}}>Gan. codigos: <b style={{color:C.emerald}}>+{fmt(s.ganancias_codigos)}</b></div>}
-                  {s.ganancias_eirl>0&&<div style={{color:C.muted}}>Gan. EIRL: <b style={{color:C.purple}}>+{fmt(s.ganancias_eirl)}</b></div>}
-                  {s.ventas>0&&<div style={{color:C.muted}}>Ventas: <b style={{color:C.emerald}}>+{fmt(s.ventas)}</b></div>}
+                <div style={S.g3}>
+                  <div style={S.box(C.danger)}><div style={S.bv(C.danger,13)}>{fmtK(data.inv)}</div><div style={S.bl}>Invertido</div></div>
+                  <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,13)}>{fmtK(data.ret)}</div><div style={S.bl}>Retorno</div></div>
+                  <div style={S.box(C.soft)}><div style={S.bv(C.soft,13)}>{data.semanas.length}/4</div><div style={S.bl}>Semanas</div></div>
                 </div>
-                <div style={{display:"flex",gap:6}}>
-                  <button style={S.bsm(C.accent)} onClick={()=>editSemana(s)}>Editar</button>
-                  <button style={S.bsm(C.danger)} onClick={()=>delSemana(s.id)}>x</button>
+                {/* Semanas del periodo */}
+                <div style={{marginTop:10}}>
+                  {data.semanas.map(s=>{
+                    const sr=(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0)-(s.google_ads||0)-(s.productos||0);
+                    return(
+                      <div key={s.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderTop:"1px solid "+C.border}}>
+                        <span style={{fontSize:12,color:C.soft}}>{s.semana_label||fmtF(s.semana_inicio)}</span>
+                        <span style={{fontSize:12,fontWeight:700,color:sr>=0?C.emerald:C.danger}}>{sr>=0?"+":""}{fmt(sr)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -499,19 +587,46 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
         </div>
       )}
 
-      {vistaFuxion==="caja"&&(
+      {/* VISTA FILTRO */}
+      {vista==="filtro"&&(
         <div>
-          {/* Saldo caja */}
+          <div style={S.card}>
+            <div style={S.lbl}>Filtrar por semanas Fuxion</div>
+            <div style={S.g2}>
+              <div><label style={S.lbl2}>Desde semana #</label><input style={S.inp} type="number" value={filtroDesde} onChange={e=>setFiltroDesde(e.target.value)} placeholder="Ej: 17"/></div>
+              <div><label style={S.lbl2}>Hasta semana #</label><input style={S.inp} type="number" value={filtroHasta} onChange={e=>setFiltroHasta(e.target.value)} placeholder="Ej: 20"/></div>
+            </div>
+            {filtroDesde&&filtroHasta&&(
+              <div style={{marginTop:12}}>
+                <div style={S.g3}>
+                  <div style={S.box(C.danger)}><div style={S.bv(C.danger,15)}>{fmtK(filtInv)}</div><div style={S.bl}>Invertido</div></div>
+                  <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,15)}>{fmtK(filtRet)}</div><div style={S.bl}>Retorno</div></div>
+                  <div style={S.box(filtRes>=0?C.emerald:C.danger)}><div style={S.bv(filtRes>=0?C.emerald:C.danger,15)}>{filtRes>=0?"+":""}{fmtK(filtRes)}</div><div style={S.bl}>Resultado</div></div>
+                </div>
+                <div style={{fontSize:11,color:C.soft,marginTop:10}}>{semsFiltradas.length} semana(s) en el rango Sem {filtroDesde} - Sem {filtroHasta}</div>
+              </div>
+            )}
+          </div>
+          {semsFiltradas.length>0&&semsFiltradas.map(s=><SemCard key={s.id} s={s}/>)}
+          {filtroDesde&&filtroHasta&&semsFiltradas.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>No hay semanas en ese rango</div>}
+        </div>
+      )}
+
+      {/* VISTA CAJA EIRL */}
+      {vista==="caja"&&(
+        <div>
           <div style={{...S.card,border:"1px solid "+C.purple+"35",background:"linear-gradient(135deg,"+C.purple+"10,"+C.card+")"}}>
             <div style={S.lbl}>Saldo Caja EIRL</div>
-            <div style={{fontWeight:900,fontSize:32,color:C.purple}}>{fmt(cajaTotal)}</div>
-            <div style={{fontSize:11,color:C.muted,marginTop:6}}>Auto (cheques EIRL): {fmt(cajaAuto)} · Entradas manuales: {fmt(cajaManualEntradas)} · Salidas: {fmt(cajaManualSalidas)}</div>
+            <div style={{fontWeight:900,fontSize:32,color:C.purple,marginBottom:8}}>{fmt(cajaTotal)}</div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Auto (cheques EIRL): {fmt(cajaAuto)}</div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Entradas manuales: +{fmt(cajaManualE)} · Salidas: -{fmt(cajaManualS)}</div>
+            {cajaAjuste!==0&&<div style={{fontSize:11,color:C.warn,marginBottom:4}}>Ajuste manual: {cajaAjuste>=0?"+":""}{fmt(cajaAjuste)}</div>}
+            <div style={{display:"flex",gap:8,marginTop:10}}>
+              <button style={{...S.bsm(C.purple),flex:1}} onClick={()=>{setAjusteVal((perfil.caja_eirl_ajuste||0)+"");setModalAjuste(true);}}>Ajustar saldo</button>
+              <button style={{...S.btn(C.purple),flex:2,color:"#fff"}} onClick={()=>setModalCaja(true)}>+ Registrar movimiento</button>
+            </div>
           </div>
-
-          <button style={{...S.btn(C.purple),width:"100%",padding:"13px",marginBottom:12,color:"#fff"}} onClick={()=>setModalCaja(true)}>+ Registrar movimiento EIRL</button>
-
           {(cajaMovs||[]).length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>Sin movimientos manuales aun</div>}
-
           {(cajaMovs||[]).map(m=>(
             <div key={m.id} style={{...S.card,borderLeft:"3px solid "+(m.tipo==="entrada"?C.emerald:C.danger)}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -537,7 +652,7 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
               <div><label style={S.lbl2}>Desde (fecha inicio)</label><input style={S.inp} type="date" value={f.semana_inicio} onChange={e=>{uf("semana_inicio",e.target.value);autoFill(e.target.value,f.semana_fin);}}/></div>
               <div><label style={S.lbl2}>Hasta (fecha fin)</label><input style={S.inp} type="date" value={f.semana_fin} onChange={e=>{uf("semana_fin",e.target.value);autoFill(f.semana_inicio,e.target.value);}}/></div>
             </div>
-            <div><label style={S.lbl2}>Referencia semana Fuxion (ej: Sem 18-2026)</label><input style={S.inp} value={f.semana_label} onChange={e=>uf("semana_label",e.target.value)} placeholder="Ej: Sem 18-2026, Semana 3 mayo..."/></div>
+            <div><label style={S.lbl2}>Referencia semana Fuxion (ej: Sem 19-2026)</label><input style={S.inp} value={f.semana_label} onChange={e=>uf("semana_label",e.target.value)} placeholder="Ej: Sem 19-2026"/></div>
             <div style={S.hr}/>
             <div style={{fontSize:11,fontWeight:700,color:C.danger,textTransform:"uppercase",letterSpacing:1}}>Inversion</div>
             <div style={S.g2}>
@@ -548,7 +663,7 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
             <div style={{fontSize:11,fontWeight:700,color:C.emerald,textTransform:"uppercase",letterSpacing:1}}>Retorno</div>
             <div style={S.g2}>
               <div><label style={S.lbl2}>Ganancias de codigos (S/)</label><input style={S.inp} type="number" value={f.ganancias_codigos} onChange={e=>uf("ganancias_codigos",e.target.value)} placeholder="0"/></div>
-              <div><label style={S.lbl2}>Ganancias de codigo EIRL (S/)</label><input style={S.inp} type="number" value={f.ganancias_eirl} onChange={e=>uf("ganancias_eirl",e.target.value)} placeholder="0"/></div>
+              <div><label style={S.lbl2}>Ganancias codigo EIRL (S/)</label><input style={S.inp} type="number" value={f.ganancias_eirl} onChange={e=>uf("ganancias_eirl",e.target.value)} placeholder="0"/></div>
             </div>
             <div><label style={S.lbl2}>Ventas de productos (S/)</label><input style={S.inp} type="number" value={f.ventas} onChange={e=>uf("ventas",e.target.value)} placeholder="0"/></div>
             <div><label style={S.lbl2}>Nota (opcional)</label><input style={S.inp} value={f.nota} onChange={e=>uf("nota",e.target.value)} placeholder="Ej: campana nueva, semana floja..."/></div>
@@ -558,7 +673,7 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
         </Modal>
       )}
 
-      {/* Modal caja EIRL */}
+      {/* Modal movimiento caja EIRL */}
       {modalCaja&&(
         <Modal title="Movimiento Caja EIRL" onClose={()=>setModalCaja(false)}>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -573,6 +688,21 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
             <div><label style={S.lbl2}>Concepto</label><input style={S.inp} value={fc.concepto} onChange={e=>ufc("concepto",e.target.value)} placeholder="Ej: Pago contabilidad, ingreso servicio..."/></div>
             <div><label style={S.lbl2}>Monto (S/)</label><input style={S.inp} type="number" value={fc.monto} onChange={e=>ufc("monto",e.target.value)} placeholder="0"/></div>
             <button style={{...S.btn(fc.tipo==="entrada"?C.emerald:C.danger),width:"100%",padding:"13px"}} onClick={guardarCaja}>Guardar</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal ajuste saldo EIRL */}
+      {modalAjuste&&(
+        <Modal title="Ajustar saldo Caja EIRL" onClose={()=>setModalAjuste(false)}>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{...S.alert(C.warn)}}>
+              <span style={{fontSize:12,color:C.warn}}>Usa esto para corregir la diferencia entre el saldo calculado y el saldo real en tu cuenta EIRL. Puede ser positivo o negativo.</span>
+            </div>
+            <div style={{fontSize:12,color:C.muted}}>Saldo calculado automaticamente: <b style={{color:C.purple}}>{fmt(cajaAuto+cajaManualE-cajaManualS)}</b></div>
+            <div><label style={S.lbl2}>Ajuste (positivo o negativo)</label><input style={S.inp} type="number" value={ajusteVal} onChange={e=>setAjusteVal(e.target.value)} placeholder="Ej: 500 o -200"/></div>
+            {ajusteVal&&<div style={{fontSize:12,color:C.soft}}>Saldo final: <b style={{color:C.purple}}>{fmt(cajaAuto+cajaManualE-cajaManualS+(parseFloat(ajusteVal)||0))}</b></div>}
+            <button style={{...S.btn(C.purple),width:"100%",padding:"13px"}} onClick={guardarAjuste}>Guardar ajuste</button>
           </div>
         </Modal>
       )}
@@ -998,7 +1128,23 @@ export default function App(){
       sb.select("cobrar","select=*&user_id=eq."+uid,tok).then(d=>setCobrar(d||[])),
       sb.select("fuxion_semanas","select=*&user_id=eq."+uid+"&order=semana_inicio.desc",tok).then(d=>setFuxionSemanas(d||[])).catch(()=>setFuxionSemanas([])),
       sb.select("caja_eirl","select=*&user_id=eq."+uid+"&order=fecha.desc",tok).then(d=>setCajaMovs(d||[])).catch(()=>setCajaMovs([])),
-      sb.select("gastos_fijos","select=*&user_id=eq."+uid+"&order=created_at.asc",tok).then(d=>setGastosFijos(d||[])).catch(()=>setGastosFijos([])),
+      sb.select("gastos_fijos","select=*&user_id=eq."+uid+"&order=created_at.asc",tok).then(async d=>{
+        if(d&&d.length>0){setGastosFijos(d);return;}
+        // Primera vez: migrar defaults a Supabase para que sean editables
+        const defaults=[
+          {user_id:uid,nombre:"Cuota Extracash Interbank",monto:2077,activo:true},
+          {user_id:uid,nombre:"Ruleteo Platinum (S/21k x 1.5%)",monto:315,activo:true},
+          {user_id:uid,nombre:"ChatGPT",monto:85,activo:true},
+          {user_id:uid,nombre:"Claude",monto:85,activo:true},
+          {user_id:uid,nombre:"Entel postpago",monto:80,activo:true},
+          {user_id:uid,nombre:"Dentista",monto:200,activo:true},
+          {user_id:uid,nombre:"Contabilidad EIRL",monto:236,activo:true},
+          {user_id:uid,nombre:"DirecTV Go",monto:83.9,activo:true},
+        ];
+        const r=await fetch(SUPA_URL+"/rest/v1/gastos_fijos",{method:"POST",headers:{...h(tok),"Prefer":"return=representation"},body:JSON.stringify(defaults)});
+        const saved=await r.json();
+        if(Array.isArray(saved))setGastosFijos(saved);
+      }).catch(()=>setGastosFijos([])),
       sb.select("extraordinarios","select=*&user_id=eq."+uid+"&order=mes.asc",tok).then(async d=>{
         if(d&&d.length>0){setExtras(d);return;}
         const base=[
@@ -1021,7 +1167,7 @@ export default function App(){
   const cajaAuto=(fuxionSemanas||[]).reduce((a,s)=>a+(s.ganancias_eirl||0),0);
   const cajaManualE=(cajaMovs||[]).filter(m=>m.tipo==="entrada").reduce((a,m)=>a+m.monto,0);
   const cajaManualS=(cajaMovs||[]).filter(m=>m.tipo==="salida").reduce((a,m)=>a+m.monto,0);
-  const cajaEirl=cajaAuto+cajaManualE-cajaManualS;
+  const cajaEirl=cajaAuto+cajaManualE-cajaManualS+(perfil.caja_eirl_ajuste||0);
   const TABS=["Inicio","Registrar","Fuxion","Deudas","Por Cobrar","Mi Plan"];
   const uid=sesion&&sesion.user.id;
 
@@ -1057,7 +1203,7 @@ export default function App(){
       <div style={S.page}>
         {tab===0&&<TabDashboard perfil={perfil} txns={txns} fuxionSemanas={fuxionSemanas} cajaEirl={cajaEirl} gastosFijos={gastosFijos}/>}
         {tab===1&&<TabRegistrar userId={uid} sesion={sesion} txns={txns} setTxns={setTxns} fuxionSemanas={fuxionSemanas} gastosFijos={gastosFijos}/>}
-        {tab===2&&<TabFuxion userId={uid} sesion={sesion} fuxionSemanas={fuxionSemanas} setFuxionSemanas={setFuxionSemanas} cajaMovs={cajaMovs} setCajaMovs={setCajaMovs} txns={txns}/>}
+        {tab===2&&<TabFuxion userId={uid} sesion={sesion} fuxionSemanas={fuxionSemanas} setFuxionSemanas={setFuxionSemanas} cajaMovs={cajaMovs} setCajaMovs={setCajaMovs} txns={txns} perfil={perfil} setPerfil={setPerfil}/>}
         {tab===3&&<TabDeudas userId={uid} sesion={sesion} deudas={deudas} setDeudas={setDeudas}/>}
         {tab===4&&<TabCobrar userId={uid} sesion={sesion} cobrar={cobrar} setCobrar={setCobrar} txns={txns} setTxns={setTxns}/>}
         {tab===5&&<TabPlan perfil={perfil} deudas={deudas} extras={extras} sesion={sesion} setExtras={setExtras} gastosFijos={gastosFijos} setGastosFijos={setGastosFijos} userId={uid}/>}
