@@ -243,9 +243,26 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
   const [guardado,setGuardado]=useState(false);
   const [mForm,setMForm]=useState({tipo:"gasto",cat:"Alimentacion",monto:"",descripcion:"",fecha:today(),fuente:"Personal"});
   const uf=(k,v)=>setMForm(p=>({...p,[k]:v}));
-  // Filtro por rango de fechas
-  const [filtroTipo,setFiltroTipo]=useState("mes"); // "mes" | "rango"
-  const [mes,setMes]=useState(curMes());
+
+  // Fuxion del periodo activo
+  const extractSemNum=(label)=>{if(!label)return null;const m=label.match(/\b(\d{1,2})\b/);return m?parseInt(m[1]):null;};
+  const semToPeriodo=(n)=>n?Math.ceil(n/4):null;
+  const todasSems=fuxionSemanas||[];
+  const semNums=todasSems.map(s=>extractSemNum(s.semana_label)).filter(Boolean);
+  const maxSemNum=semNums.length>0?Math.max(...semNums):null;
+  const periodoActivo=semToPeriodo(maxSemNum);
+  const semsDelPeriodo=periodoActivo?todasSems.filter(s=>{const n=extractSemNum(s.semana_label);return n&&semToPeriodo(n)===periodoActivo;}):[];
+  const fuxRetPer=semsDelPeriodo.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
+  const fuxInvPer=semsDelPeriodo.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
+  const ingFuxPeriodo=Math.max(fuxRetPer-fuxInvPer,0);
+
+  // Fechas reales del periodo activo (desde inicio primera sem hasta fin ultima sem)
+  const semsOrdenadas=[...semsDelPeriodo].sort((a,b)=>(a.semana_inicio||"").localeCompare(b.semana_inicio||""));
+  const periodoIni=semsOrdenadas.length>0?(semsOrdenadas[0].semana_inicio||today()):today();
+  const periodoFin=semsOrdenadas.length>0?(semsOrdenadas[semsOrdenadas.length-1].semana_fin||semsOrdenadas[semsOrdenadas.length-1].semana_inicio||today()):today();
+
+  // Filtro — "periodo" usa fechas reales del periodo activo, "rango" es libre
+  const [filtroTipo,setFiltroTipo]=useState("periodo");
   const [rangoIni,setRangoIni]=useState(today());
   const [rangoFin,setRangoFin]=useState(today());
 
@@ -257,22 +274,18 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
   };
   const eliminar=async(id)=>{await sb.delete("transacciones",id,sesion.token);setTxns(p=>p.filter(t=>t.id!==id));};
 
-  // Filtrado
+  // Filtrado por periodo activo o rango libre
   const filtradas=txns.filter(t=>{
     if(!t.fecha)return false;
     const fd=t.fecha.split("T")[0];
-    if(filtroTipo==="mes")return fd.startsWith(mes);
+    if(filtroTipo==="periodo")return fd>=periodoIni&&fd<=periodoFin;
     return fd>=rangoIni&&fd<=rangoFin;
   });
 
   const ingMes=filtradas.filter(t=>t.tipo==="ingreso"&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
   const gastVar=filtradas.filter(t=>t.tipo==="gasto"&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
-  const gastMes=filtroTipo==="mes"?totalFijos+gastVar:gastVar;
-
-  // Fuxion del mes para sumar a ingresos
-  const mesActivo=filtroTipo==="mes"?mes:rangoIni.slice(0,7);
-  const ingFuxMes=(fuxionSemanas||[]).filter(s=>s.semana_inicio&&s.semana_inicio.startsWith(mesActivo)).reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ventas||0),0);
-  const ingTotal=ingMes+ingFuxMes;
+  const gastMes=totalFijos+gastVar;
+  const ingTotal=ingMes+ingFuxPeriodo;
 
   const porDia={};
   filtradas.forEach(t=>{const d=t.fecha&&t.fecha.split("T")[0];if(d){if(!porDia[d])porDia[d]=[];porDia[d].push(t);}});
@@ -303,12 +316,12 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
       {/* Filtro */}
       <div style={{...S.card,padding:12}}>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
-          {[["mes","Por mes"],["rango","Por fechas"]].map(([k,l])=>(
+          {[["periodo","Periodo "+( periodoActivo||"")],["rango","Por fechas"]].map(([k,l])=>(
             <button key={k} onClick={()=>setFiltroTipo(k)} style={{flex:1,padding:"8px",borderRadius:8,border:"1px solid "+(filtroTipo===k?C.accent:C.border),background:filtroTipo===k?C.accent+"18":C.surface,color:filtroTipo===k?C.accent:C.muted,fontWeight:600,fontSize:12,cursor:"pointer"}}>{l}</button>
           ))}
         </div>
-        {filtroTipo==="mes"?(
-          <input type="month" style={S.inp} value={mes} onChange={e=>setMes(e.target.value)}/>
+        {filtroTipo==="periodo"?(
+          <div style={{fontSize:11,color:C.soft}}>{fmtF(periodoIni)} — {fmtF(periodoFin)} · {semsDelPeriodo.length} semana(s)</div>
         ):(
           <div style={S.g2}>
             <div><label style={S.lbl2}>Desde</label><input type="date" style={S.inp} value={rangoIni} onChange={e=>setRangoIni(e.target.value)}/></div>
@@ -319,14 +332,14 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
 
       {/* Resumen */}
       <div style={S.g3}>
-        <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,15)}>{fmtK(ingTotal)}</div><div style={S.bl}>Ingresos{ingFuxMes>0?" *":""}</div></div>
+        <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,15)}>{fmtK(ingTotal)}</div><div style={S.bl}>Ingresos{ingFuxPeriodo>0?" *":""}</div></div>
         <div style={S.box(C.danger)}><div style={S.bv(C.danger,15)}>{fmtK(gastMes)}</div><div style={S.bl}>Gastos</div></div>
         <div style={S.box(ingTotal-gastMes>=0?C.accent:C.danger)}><div style={S.bv(ingTotal-gastMes>=0?C.accent:C.danger,15)}>{fmtK(ingTotal-gastMes)}</div><div style={S.bl}>Balance</div></div>
       </div>
-      {ingFuxMes>0&&<div style={{fontSize:10,color:C.muted,marginBottom:8,marginTop:-6}}>* Incluye {fmtK(ingFuxMes)} de Fuxion este mes</div>}
+      {ingFuxPeriodo>0&&<div style={{fontSize:10,color:C.muted,marginBottom:8,marginTop:-6}}>* Incluye {fmtK(ingFuxPeriodo)} de Fuxion periodo {periodoActivo}</div>}
 
       {/* Fijos */}
-      {filtroTipo==="mes"&&(
+      {filtroTipo==="periodo"&&(
         <div style={S.card}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontWeight:700,fontSize:12}}>Fijos automaticos</span><span style={{fontWeight:800,color:C.danger}}>-{fmt(totalFijos)}</span></div>
           {fijosActivos.map((g,i)=>(
