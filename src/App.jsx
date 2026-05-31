@@ -204,11 +204,10 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
   return(
     <div>
       {/* Selector de periodo */}
-      <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
-        {listaPeriodos.map(p=>(
-          <button key={p} onClick={()=>setPeriodoVisto(p)} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:"1px solid "+(periodoVisto===p?C.accent:C.border),background:periodoVisto===p?C.accent+"18":C.surface,color:periodoVisto===p?C.accent:C.muted,fontWeight:700,fontSize:11,cursor:"pointer"}}>
-            P{p}{p===periodoActualReal?" ·":""}</button>
-        ))}
+      <div style={{marginBottom:12}}>
+        <select value={periodoVisto} onChange={e=>setPeriodoVisto(Number(e.target.value))} style={{...S.sel,fontWeight:700,color:C.accent,border:"1px solid "+C.accent+"40",background:C.surface}}>
+          {listaPeriodos.map(p=><option key={p} value={p}>Periodo {p}{p===periodoActualReal?" (actual)":""}</option>)}
+        </select>
       </div>
 
       {/* HERO — margen libre protagonista */}
@@ -379,13 +378,9 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
         </div>
         {filtroTipo==="periodo"?(
           <div>
-            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:8}}>
-              {listaPeriodos.map(p=>(
-                <button key={p} onClick={()=>setPeriodoVisto(p)} style={{flexShrink:0,padding:"5px 12px",borderRadius:16,border:"1px solid "+(periodoVisto===p?C.accent:C.border),background:periodoVisto===p?C.accent+"18":C.surface,color:periodoVisto===p?C.accent:C.muted,fontWeight:700,fontSize:11,cursor:"pointer"}}>
-                  P{p}{p===periodoActualReal?" ·":""}
-                </button>
-              ))}
-            </div>
+            <select value={periodoVisto} onChange={e=>setPeriodoVisto(Number(e.target.value))} style={{...S.sel,fontWeight:700,color:C.accent,border:"1px solid "+C.accent+"40",background:C.surface,marginBottom:8}}>
+              {listaPeriodos.map(p=><option key={p} value={p}>Periodo {p}{p===periodoActualReal?" (actual)":""}</option>)}
+            </select>
             <div style={{fontSize:11,color:C.soft}}>{fmtF(perIni)} — {fmtF(perFin)} · Sem {periodoToSems(periodoVisto)[0]}-{periodoToSems(periodoVisto)[3]}</div>
           </div>
         ):(
