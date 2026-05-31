@@ -18,9 +18,61 @@ const fmtK=(n)=>{const a=Math.abs(n||0);if(a>=1e6)return"S/ "+(n/1e6).toFixed(1)
 const fmtF=(f)=>{if(!f)return"";const s=f.split("T")[0];const[,m,d]=s.split("-");const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];return parseInt(d)+" "+ms[parseInt(m)-1];};
 const today=()=>new Date().toISOString().split("T")[0];
 const curMes=()=>new Date().toISOString().slice(0,7);
-const semanaNum=(fecha)=>{const d=new Date(fecha);const ini=new Date(d.getFullYear(),0,1);const diff=d-ini;const oneWeek=604800000;return Math.ceil((diff/oneWeek)+1);};
-const semanaRango=(ini)=>{if(!ini)return"";const d=new Date(ini);const fin=new Date(d);fin.setDate(fin.getDate()+6);return fmtF(ini)+" - "+fmtF(fin.toISOString().split("T")[0])+" · Sem "+semanaNum(ini)+"-"+new Date(ini).getFullYear();};
 
+// ── MOTOR DE PERIODOS FUXION ─────────────────────────────────────────────────
+// Ancla: Semana 17 inició el miércoles 29 de abril de 2026
+const FUXION_ANCLA_FECHA="2026-04-29"; // miércoles
+const FUXION_ANCLA_SEM=17;
+
+// Dado una fecha, retorna el número de semana Fuxion
+const fechaToSemFuxion=(fecha)=>{
+  const ancla=new Date(FUXION_ANCLA_FECHA);
+  const d=new Date(fecha);
+  const diffDias=Math.floor((d-ancla)/(1000*60*60*24));
+  return FUXION_ANCLA_SEM+Math.floor(diffDias/7);
+};
+
+// Dado número de semana Fuxion, retorna fecha de inicio (miércoles) y fin (martes)
+const semFuxionToFechas=(numSem)=>{
+  const ancla=new Date(FUXION_ANCLA_FECHA);
+  const diffSems=numSem-FUXION_ANCLA_SEM;
+  const ini=new Date(ancla);
+  ini.setDate(ini.getDate()+diffSems*7);
+  const fin=new Date(ini);
+  fin.setDate(fin.getDate()+6);
+  return{
+    ini:ini.toISOString().split("T")[0],
+    fin:fin.toISOString().split("T")[0],
+  };
+};
+
+// Dado número de semana, retorna período (sem 17-20=P5, 21-24=P6...)
+const semToPeriodoFuxion=(numSem)=>Math.ceil(numSem/4);
+
+// Dado número de período, retorna semanas que lo componen
+const periodoToSems=(p)=>{
+  const base=(p-1)*4+1;
+  return[base,base+1,base+2,base+3];
+};
+
+// Fechas de inicio y fin de un período completo
+const periodoToFechas=(p)=>{
+  const sems=periodoToSems(p);
+  const ini=semFuxionToFechas(sems[0]).ini;
+  const fin=semFuxionToFechas(sems[3]).fin;
+  return{ini,fin};
+};
+
+// Período activo basado en la fecha de hoy
+const getPeriodoActivo=()=>semToPeriodoFuxion(fechaToSemFuxion(today()));
+
+// Lista de períodos desde P5 hasta el actual+1 (para selector)
+const getListaPeriodos=()=>{
+  const actual=getPeriodoActivo();
+  const lista=[];
+  for(let p=5;p<=actual+1;p++)lista.push(p);
+  return lista;
+};
 const SBS_L=["Normal","Prob. Potenciales","Deficiente","Dudoso","Perdida"];
 const SBS_C=["#22c55e","#eab308","#f97316","#ef4444","#dc2626"];
 const sbsI=(d)=>d<=7?0:d<=30?1:d<=60?2:d<=120?3:4;
@@ -113,44 +165,57 @@ function AuthScreen({onLogin}){
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
-  const mes=curMes();
-  const hoy=today();
-  const diasMes=new Date(new Date().getFullYear(),new Date().getMonth()+1,0).getDate();
-  const diaActual=new Date().getDate();
-  const pctMes=Math.round((diaActual/diasMes)*100);
+  const periodoActualReal=getPeriodoActivo();
+  const [periodoVisto,setPeriodoVisto]=useState(periodoActualReal);
+  const listaPeriodos=getListaPeriodos();
 
-  // Usar gastos fijos de BD si existen, sino los hardcodeados
+  // Gastos fijos
   const fijosActivos=gastosFijos.length>0?gastosFijos.filter(g=>g.activo):GASTOS_FIJOS;
   const totalFijos=fijosActivos.reduce((a,g)=>a+g.monto,0);
 
-  // Fuxion: periodo activo = semanas mas recientes agrupadas por periodo
-  const todasSems=fuxionSemanas||[];
-  const extractSemNum=(label)=>{if(!label)return null;const m=label.match(/\b(\d{1,2})\b/);return m?parseInt(m[1]):null;};
-  const semToPeriodo=(n)=>n?Math.ceil(n/4):null;
-  const semNums=todasSems.map(s=>extractSemNum(s.semana_label)).filter(Boolean);
-  const maxSemNum=semNums.length>0?Math.max(...semNums):null;
-  const periodoActivo=semToPeriodo(maxSemNum);
-  const semsDelPeriodo=periodoActivo?todasSems.filter(s=>{const n=extractSemNum(s.semana_label);return n&&semToPeriodo(n)===periodoActivo;}):[];
-  const fuxInvPer=semsDelPeriodo.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
-  const fuxRetPer=semsDelPeriodo.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
-  const fuxResPer=fuxRetPer-fuxInvPer;
-  const semMasReciente=todasSems.length>0?todasSems[0]:null;
+  // Fechas reales del periodo visto
+  const {ini:perIni,fin:perFin}=periodoToFechas(periodoVisto);
 
-  // Ingresos: txns manuales del mes + RESULTADO NETO Fuxion del periodo activo
-  const ingTxns=txns.filter(t=>t.tipo==="ingreso"&&t.fecha&&t.fecha.startsWith(mes)&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
-  const ingTotal=ingTxns+(fuxResPer>0?fuxResPer:0);
-  const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.startsWith(mes)&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+  // Ingresos manuales dentro del periodo visto
+  const ingTxns=txns.filter(t=>t.tipo==="ingreso"&&t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+
+  // Semanas Fuxion que caen dentro del periodo visto (por fecha inicio)
+  const fuxSemsPer=(fuxionSemanas||[]).filter(s=>s.semana_inicio&&s.semana_inicio>=perIni&&s.semana_inicio<=perFin);
+  const fuxRet=fuxSemsPer.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
+  const fuxInv=fuxSemsPer.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
+  const fuxResPer=fuxRet-fuxInv;
+  const ingFuxPeriodo=Math.max(fuxResPer,0);
+  const ingTotal=ingTxns+ingFuxPeriodo;
+
+  // Gastos variables del periodo visto
+  const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
   const gastMes=totalFijos+gastVar;
   const margen=ingTotal-gastMes;
 
-  // Ultimos 3 movimientos
-  const recientes=[...txns].sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")).slice(0,3);
+  // Progreso del periodo
+  const hoy=today();
+  const diasTotales=Math.floor((new Date(perFin)-new Date(perIni))/(1000*60*60*24))+1;
+  const diasTrans=Math.min(Math.max(Math.floor((new Date(hoy)-new Date(perIni))/(1000*60*60*24))+1,0),diasTotales);
+  const pctPeriodo=Math.round((diasTrans/diasTotales)*100);
+
+  // Ultimos 3 movimientos del periodo visto
+  const recientes=[...txns].filter(t=>t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")).slice(0,3);
 
   return(
     <div>
+      {/* Selector de periodo */}
+      <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
+        {listaPeriodos.map(p=>(
+          <button key={p} onClick={()=>setPeriodoVisto(p)} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:"1px solid "+(periodoVisto===p?C.accent:C.border),background:periodoVisto===p?C.accent+"18":C.surface,color:periodoVisto===p?C.accent:C.muted,fontWeight:700,fontSize:11,cursor:"pointer"}}>
+            P{p}{p===periodoActualReal?" ·":""}</button>
+        ))}
+      </div>
+
       {/* HERO — margen libre protagonista */}
       <div style={{background:"linear-gradient(135deg,#0a1f35,"+C.card+")",border:"1px solid "+(margen>=0?C.emerald:C.danger)+"35",borderRadius:20,padding:20,marginBottom:12}}>
-        <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Margen libre — {new Date().toLocaleString("es-PE",{month:"long"})} {new Date().getFullYear()}</div>
+        <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>
+          Margen libre · Periodo {periodoVisto} · {fmtF(perIni)} — {fmtF(perFin)}
+        </div>
         <div style={{fontSize:42,fontWeight:900,color:margen>=0?C.emerald:C.danger,lineHeight:1,marginBottom:8}}>{fmtK(margen)}</div>
         <div style={{fontSize:12,color:C.soft,marginBottom:12}}>
           <span style={{color:C.emerald}}>+{fmtK(ingTotal)}</span>
@@ -158,11 +223,10 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
           <span style={{color:C.danger}}>-{fmtK(gastMes)}</span>
           <span style={{color:C.muted}}> gastos</span>
         </div>
-        {/* barra de progreso del mes */}
-        <div style={{...S.bar(4),marginBottom:4}}><div style={S.fill(pctMes,C.accent+"80",4)}/></div>
+        <div style={{...S.bar(4),marginBottom:4}}><div style={S.fill(pctPeriodo,C.accent+"80",4)}/></div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
-          <span>Dia {diaActual} de {diasMes}</span>
-          <span>{pctMes}% del mes transcurrido</span>
+          <span>Dia {diasTrans} de {diasTotales}</span>
+          <span>{pctPeriodo}% del periodo transcurrido</span>
         </div>
       </div>
 
@@ -180,23 +244,22 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
         ))}
       </div>
 
-      {/* Fuxion — Periodo activo */}
-      <div style={{...S.card,border:"1px solid "+(periodoActivo?(fuxResPer>=0?C.emerald:C.danger):C.border)+"40"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:periodoActivo?10:0}}>
-          <div style={S.lbl}>Fuxion{periodoActivo?` · Periodo ${periodoActivo}`:""}</div>
-          {periodoActivo&&<span style={{fontSize:10,color:C.muted}}>Sem {(periodoActivo-1)*4+1}-{periodoActivo*4} · {semsDelPeriodo.length}/4 sem</span>}
+      {/* Fuxion del periodo */}
+      <div style={{...S.card,border:"1px solid "+(fuxResPer>=0?C.emerald:C.danger)+"40"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={S.lbl}>Fuxion · Periodo {periodoVisto}</div>
+          <span style={{fontSize:10,color:C.muted}}>Sem {periodoToSems(periodoVisto)[0]}-{periodoToSems(periodoVisto)[3]} · {fuxSemsPer.length}/4 sem</span>
         </div>
-        {periodoActivo?(
+        {fuxSemsPer.length>0?(
           <div>
             <div style={S.g3}>
-              <div style={S.box(C.danger)}><div style={S.bv(C.danger,15)}>{fmtK(fuxInvPer)}</div><div style={S.bl}>Invertido</div></div>
-              <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,15)}>{fmtK(fuxRetPer)}</div><div style={S.bl}>Retorno</div></div>
+              <div style={S.box(C.danger)}><div style={S.bv(C.danger,15)}>{fmtK(fuxInv)}</div><div style={S.bl}>Invertido</div></div>
+              <div style={S.box(C.emerald)}><div style={S.bv(C.emerald,15)}>{fmtK(fuxRet)}</div><div style={S.bl}>Retorno</div></div>
               <div style={S.box(fuxResPer>=0?C.emerald:C.danger)}><div style={S.bv(fuxResPer>=0?C.emerald:C.danger,15)}>{fuxResPer>=0?"+":""}{fmtK(fuxResPer)}</div><div style={S.bl}>Resultado</div></div>
             </div>
-            {semMasReciente&&<div style={{fontSize:11,color:C.soft,marginTop:8}}>Ultima sem: <b>{semMasReciente.semana_label||fmtF(semMasReciente.semana_inicio)}</b></div>}
           </div>
         ):(
-          <div style={{textAlign:"center",padding:"12px 0",color:C.muted,fontSize:12}}>Sin semanas registradas · Ve a Fuxion para agregar</div>
+          <div style={{textAlign:"center",padding:"12px 0",color:C.muted,fontSize:12}}>Sin semanas Fuxion registradas para este periodo</div>
         )}
       </div>
 
@@ -209,10 +272,10 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
         </div>
       )}
 
-      {/* Ultimos 3 movimientos */}
+      {/* Ultimos movimientos del periodo */}
       {recientes.length>0&&(
         <div style={S.card}>
-          <div style={S.lbl}>Ultimos movimientos</div>
+          <div style={S.lbl}>Ultimos movimientos · Periodo {periodoVisto}</div>
           {recientes.map(t=>(
             <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}>
               <div>
@@ -244,27 +307,21 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
   const [mForm,setMForm]=useState({tipo:"gasto",cat:"Alimentacion",monto:"",descripcion:"",fecha:today(),fuente:"Personal"});
   const uf=(k,v)=>setMForm(p=>({...p,[k]:v}));
 
-  // Fuxion del periodo activo
-  const extractSemNum=(label)=>{if(!label)return null;const m=label.match(/\b(\d{1,2})\b/);return m?parseInt(m[1]):null;};
-  const semToPeriodo=(n)=>n?Math.ceil(n/4):null;
-  const todasSems=fuxionSemanas||[];
-  const semNums=todasSems.map(s=>extractSemNum(s.semana_label)).filter(Boolean);
-  const maxSemNum=semNums.length>0?Math.max(...semNums):null;
-  const periodoActivo=semToPeriodo(maxSemNum);
-  const semsDelPeriodo=periodoActivo?todasSems.filter(s=>{const n=extractSemNum(s.semana_label);return n&&semToPeriodo(n)===periodoActivo;}):[];
-  const fuxRetPer=semsDelPeriodo.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
-  const fuxInvPer=semsDelPeriodo.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
-  const ingFuxPeriodo=Math.max(fuxRetPer-fuxInvPer,0);
-
-  // Fechas reales del periodo activo (desde inicio primera sem hasta fin ultima sem)
-  const semsOrdenadas=[...semsDelPeriodo].sort((a,b)=>(a.semana_inicio||"").localeCompare(b.semana_inicio||""));
-  const periodoIni=semsOrdenadas.length>0?(semsOrdenadas[0].semana_inicio||today()):today();
-  const periodoFin=semsOrdenadas.length>0?(semsOrdenadas[semsOrdenadas.length-1].semana_fin||semsOrdenadas[semsOrdenadas.length-1].semana_inicio||today()):today();
-
-  // Filtro — "periodo" usa fechas reales del periodo activo, "rango" es libre
+  const periodoActualReal=getPeriodoActivo();
+  const [periodoVisto,setPeriodoVisto]=useState(periodoActualReal);
+  const listaPeriodos=getListaPeriodos();
   const [filtroTipo,setFiltroTipo]=useState("periodo");
   const [rangoIni,setRangoIni]=useState(today());
   const [rangoFin,setRangoFin]=useState(today());
+
+  // Fechas del periodo visto
+  const {ini:perIni,fin:perFin}=periodoToFechas(periodoVisto);
+
+  // Fuxion del periodo visto
+  const fuxSemsPer=(fuxionSemanas||[]).filter(s=>s.semana_inicio&&s.semana_inicio>=perIni&&s.semana_inicio<=perFin);
+  const fuxRet=fuxSemsPer.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
+  const fuxInv=fuxSemsPer.reduce((a,s)=>a+(s.google_ads||0)+(s.productos||0),0);
+  const ingFuxPeriodo=Math.max(fuxRet-fuxInv,0);
 
   const guardarManual=async()=>{
     if(!mForm.monto||+mForm.monto<=0)return;
@@ -274,18 +331,18 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
   };
   const eliminar=async(id)=>{await sb.delete("transacciones",id,sesion.token);setTxns(p=>p.filter(t=>t.id!==id));};
 
-  // Filtrado por periodo activo o rango libre
+  // Filtrado por periodo o rango libre
   const filtradas=txns.filter(t=>{
     if(!t.fecha)return false;
     const fd=t.fecha.split("T")[0];
-    if(filtroTipo==="periodo")return fd>=periodoIni&&fd<=periodoFin;
+    if(filtroTipo==="periodo")return fd>=perIni&&fd<=perFin;
     return fd>=rangoIni&&fd<=rangoFin;
   });
 
   const ingMes=filtradas.filter(t=>t.tipo==="ingreso"&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
   const gastVar=filtradas.filter(t=>t.tipo==="gasto"&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
-  const gastMes=totalFijos+gastVar;
-  const ingTotal=ingMes+ingFuxPeriodo;
+  const gastMes=filtroTipo==="periodo"?totalFijos+gastVar:gastVar;
+  const ingTotal=ingMes+(filtroTipo==="periodo"?ingFuxPeriodo:0);
 
   const porDia={};
   filtradas.forEach(t=>{const d=t.fecha&&t.fecha.split("T")[0];if(d){if(!porDia[d])porDia[d]=[];porDia[d].push(t);}});
@@ -316,12 +373,21 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
       {/* Filtro */}
       <div style={{...S.card,padding:12}}>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
-          {[["periodo","Periodo "+( periodoActivo||"")],["rango","Por fechas"]].map(([k,l])=>(
+          {[["periodo","Por periodo"],["rango","Por fechas"]].map(([k,l])=>(
             <button key={k} onClick={()=>setFiltroTipo(k)} style={{flex:1,padding:"8px",borderRadius:8,border:"1px solid "+(filtroTipo===k?C.accent:C.border),background:filtroTipo===k?C.accent+"18":C.surface,color:filtroTipo===k?C.accent:C.muted,fontWeight:600,fontSize:12,cursor:"pointer"}}>{l}</button>
           ))}
         </div>
         {filtroTipo==="periodo"?(
-          <div style={{fontSize:11,color:C.soft}}>{fmtF(periodoIni)} — {fmtF(periodoFin)} · {semsDelPeriodo.length} semana(s)</div>
+          <div>
+            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:8}}>
+              {listaPeriodos.map(p=>(
+                <button key={p} onClick={()=>setPeriodoVisto(p)} style={{flexShrink:0,padding:"5px 12px",borderRadius:16,border:"1px solid "+(periodoVisto===p?C.accent:C.border),background:periodoVisto===p?C.accent+"18":C.surface,color:periodoVisto===p?C.accent:C.muted,fontWeight:700,fontSize:11,cursor:"pointer"}}>
+                  P{p}{p===periodoActualReal?" ·":""}
+                </button>
+              ))}
+            </div>
+            <div style={{fontSize:11,color:C.soft}}>{fmtF(perIni)} — {fmtF(perFin)} · Sem {periodoToSems(periodoVisto)[0]}-{periodoToSems(periodoVisto)[3]}</div>
+          </div>
         ):(
           <div style={S.g2}>
             <div><label style={S.lbl2}>Desde</label><input type="date" style={S.inp} value={rangoIni} onChange={e=>setRangoIni(e.target.value)}/></div>
@@ -336,9 +402,8 @@ function TabRegistrar({userId,sesion,txns,setTxns,fuxionSemanas,gastosFijos}){
         <div style={S.box(C.danger)}><div style={S.bv(C.danger,15)}>{fmtK(gastMes)}</div><div style={S.bl}>Gastos</div></div>
         <div style={S.box(ingTotal-gastMes>=0?C.accent:C.danger)}><div style={S.bv(ingTotal-gastMes>=0?C.accent:C.danger,15)}>{fmtK(ingTotal-gastMes)}</div><div style={S.bl}>Balance</div></div>
       </div>
-      {ingFuxPeriodo>0&&<div style={{fontSize:10,color:C.muted,marginBottom:8,marginTop:-6}}>* Incluye {fmtK(ingFuxPeriodo)} de Fuxion periodo {periodoActivo}</div>}
+      {ingFuxPeriodo>0&&filtroTipo==="periodo"&&<div style={{fontSize:10,color:C.muted,marginBottom:8,marginTop:-6}}>* Incluye {fmtK(ingFuxPeriodo)} de Fuxion periodo {periodoVisto}</div>}
 
-      {/* Fijos */}
       {filtroTipo==="periodo"&&(
         <div style={S.card}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontWeight:700,fontSize:12}}>Fijos automaticos</span><span style={{fontWeight:800,color:C.danger}}>-{fmt(totalFijos)}</span></div>
