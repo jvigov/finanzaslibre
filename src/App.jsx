@@ -68,9 +68,8 @@ const getPeriodoActivo=()=>semToPeriodoFuxion(fechaToSemFuxion(today()));
 
 // Lista de períodos desde P5 hasta el actual+1 (para selector)
 const getListaPeriodos=()=>{
-  const actual=getPeriodoActivo();
   const lista=[];
-  for(let p=5;p<=actual+1;p++)lista.push(p);
+  for(let p=5;p<=13;p++)lista.push(p);
   return lista;
 };
 const SBS_L=["Normal","Prob. Potenciales","Deficiente","Dudoso","Perdida"];
