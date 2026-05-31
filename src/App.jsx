@@ -123,15 +123,6 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
   const fijosActivos=gastosFijos.length>0?gastosFijos.filter(g=>g.activo):GASTOS_FIJOS;
   const totalFijos=fijosActivos.reduce((a,g)=>a+g.monto,0);
 
-  // Ingresos: solo lo que el usuario registra manualmente (excluye categorias Fuxion) + fuxion del mes
-  const ingTxns=txns.filter(t=>t.tipo==="ingreso"&&t.fecha&&t.fecha.startsWith(mes)&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
-  const fuxMes=(fuxionSemanas||[]).filter(s=>s.semana_inicio&&s.semana_inicio.startsWith(mes));
-  const ingFuxMes=fuxMes.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ventas||0),0);
-  const ingTotal=ingTxns+ingFuxMes;
-  const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.startsWith(mes)&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
-  const gastMes=totalFijos+gastVar;
-  const margen=ingTotal-gastMes;
-
   // Fuxion: periodo activo = semanas mas recientes agrupadas por periodo
   const todasSems=fuxionSemanas||[];
   const extractSemNum=(label)=>{if(!label)return null;const m=label.match(/\b(\d{1,2})\b/);return m?parseInt(m[1]):null;};
@@ -144,6 +135,13 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
   const fuxRetPer=semsDelPeriodo.reduce((a,s)=>a+(s.ganancias_codigos||0)+(s.ganancias_eirl||0)+(s.ventas||0),0);
   const fuxResPer=fuxRetPer-fuxInvPer;
   const semMasReciente=todasSems.length>0?todasSems[0]:null;
+
+  // Ingresos: txns manuales del mes + RESULTADO NETO Fuxion del periodo activo
+  const ingTxns=txns.filter(t=>t.tipo==="ingreso"&&t.fecha&&t.fecha.startsWith(mes)&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+  const ingTotal=ingTxns+(fuxResPer>0?fuxResPer:0);
+  const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.startsWith(mes)&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+  const gastMes=totalFijos+gastVar;
+  const margen=ingTotal-gastMes;
 
   // Ultimos 3 movimientos
   const recientes=[...txns].sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")).slice(0,3);
@@ -388,12 +386,18 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
   const ufc=(k,v)=>setFc(p=>({...p,[k]:v}));
 
   // Auto-llena ventas y productos del rango de fechas
+  // SOLO para semanas nuevas (sin id), SOLO si el campo esta en cero
   const autoFill=(ini,fin)=>{
-    if(!ini)return;
+    if(!ini||f.id)return; // nunca en modo edicion
     const finReal=fin||ini;
     const ventas=(txns||[]).filter(t=>t.cat==="Venta productos Fuxion"&&t.tipo==="ingreso"&&t.fecha&&t.fecha.split("T")[0]>=ini&&t.fecha.split("T")[0]<=finReal).reduce((a,t)=>a+t.monto,0);
     const productos=(txns||[]).filter(t=>t.cat==="Compra productos Fuxion"&&t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=ini&&t.fecha.split("T")[0]<=finReal).reduce((a,t)=>a+t.monto,0);
-    setF(p=>({...p,ventas:ventas>0?ventas+"":p.ventas,productos:productos>0?productos+"":p.productos}));
+    // Solo pre-llena si el campo esta vacio o en cero — nunca pisa datos existentes
+    setF(p=>({
+      ...p,
+      ventas:ventas>0&&(p.ventas===""||+p.ventas===0)?ventas+"":p.ventas,
+      productos:productos>0&&(p.productos===""||+p.productos===0)?productos+"":p.productos,
+    }));
   };
 
   // Extrae numero de semana Fuxion del label (ej: "Sem 19-2026" → 19)
@@ -993,7 +997,7 @@ function TabPlan({perfil,deudas,extras,sesion,setExtras,gastosFijos,setGastosFij
             </div>
             <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
               <span style={{fontWeight:600,color:g.activo?C.danger:C.muted,fontSize:12}}>{fmt(g.monto)}</span>
-              {typeof g.id!=="string"&&<>
+              {gastosFijos.length>0&&<>
                 <button style={S.bsm(g.activo?C.warn:C.emerald)} onClick={()=>toggleFijo(g)}>{g.activo?"Pausar":"Activar"}</button>
                 <button style={S.bsm(C.accent)} onClick={()=>{setFijo({nombre:g.nombre,monto:g.monto+"",activo:g.activo});setEditFijo(g.id);setModalFijo(true);}}>Editar</button>
                 <button style={S.bsm(C.danger)} onClick={()=>delFijo(g.id)}>x</button>
