@@ -801,11 +801,11 @@ const DEPA_ARTIFACT_URL="https://claude.ai/artifact/J6G7AMY4pPYfbmeNgPq5sH";
 const DEPA_IMPORTE=277800;
 
 function TabDepa({txns,sesion}){
-  const [pagos,setPagos]=React.useState(null);
-  const [config,setConfig]=React.useState(null);
-  const [loadErr,setLoadErr]=React.useState(false);
+  const [pagos,setPagos]=useState(null);
+  const [config,setConfig]=useState(null);
+  const [loadErr,setLoadErr]=useState(false);
 
-  React.useEffect(()=>{
+  useEffect(()=>{
     // Fetch pagos collection from artifact DB
     fetch("https://firestore.googleapis.com/v1/projects/claude-artifacts/databases/(default)/documents/artifacts/J6G7AMY4pPYfbmeNgPq5sH/pagos")
       .catch(()=>null);
