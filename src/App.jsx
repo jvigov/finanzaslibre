@@ -820,12 +820,15 @@ function TabDepa({txns,sesion}){
     });
   },[]);
 
+  // Config BBVA (debe ir antes de cuotaMensual)
+  const cfg=config||{cuota:2421.89,dia:30};
+
   // Gastos e ingresos depa desde FinanzasLibre
   const gastosFL=txns.filter(t=>t.tipo==="gasto"&&t.cat==="Depa Miraflores").sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
   const totalFL=gastosFL.reduce((a,t)=>a+t.monto,0);
   const rentasFL=txns.filter(t=>t.tipo==="ingreso"&&CAT_RENTA_DEPA.includes(t.cat)).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
   const totalRentas=rentasFL.reduce((a,t)=>a+t.monto,0);
-  const cuotaMensual=(config?.cuota||2421.89);
+  const cuotaMensual=cfg.cuota||2421.89;
   const roiMensual=totalRentas>0?totalRentas-cuotaMensual:null;
 
   // Parsear pagos del artefacto
@@ -834,10 +837,9 @@ function TabDepa({txns,sesion}){
   const pagosB=pagosList.filter(p=>p.quien==="B");
   const totalA=pagosA.reduce((a,p)=>a+(p.monto||0),0);
   const totalB=pagosB.reduce((a,p)=>a+(p.monto||0),0);
-  const balance=totalA-totalB; // positivo = Johnatan pagó más; negativo = Johnatan debe a Melissa
+  const balance=totalA-totalB;
 
   // Próxima cuota BBVA
-  const cfg=config||{cuota:2421.89,dia:30};
   const hoy=new Date();
   const diaCorte=cfg.dia||30;
   let proxBBVA=new Date(hoy.getFullYear(),hoy.getMonth(),diaCorte);
@@ -924,8 +926,8 @@ function TabDepa({txns,sesion}){
             </div>
             <div style={{borderTop:"1px solid "+C.border,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
               <span style={{fontSize:12,fontWeight:700,color:C.text}}>Flujo neto</span>
-              <span style={{fontSize:14,fontWeight:900,color:roiMensual>=0?C.emerald:C.warn}}>
-                {roiMensual>=0?"+":""}S/{roiMensual.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}
+              <span style={{fontSize:14,fontWeight:900,color:(roiMensual||0)>=0?C.emerald:C.warn}}>
+                {(roiMensual||0)>=0?"+":""}S/{(roiMensual||0).toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}
               </span>
             </div>
           </div>
