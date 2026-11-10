@@ -89,7 +89,8 @@ const GASTOS_FIJOS=[
 const TOTAL_FIJOS=GASTOS_FIJOS.reduce((a,g)=>a+g.monto,0);
 
 const GC=["Alimentacion","Comida afuera","Taxi / Uber","Viaje y combustible","Salud y farmacia","Entretenimiento","Regalo / detalle","Ropa y personal","Suscripciones IA","Educacion","Compra productos Fuxion","Extraordinario","Depa Miraflores"];
-const IC=["Sueldo SUNAT","Gestiones admin","Venta productos Fuxion","Firu / Bancaje","Otro ingreso"];
+const IC=["Sueldo SUNAT","Gestiones admin","Venta productos Fuxion","Firu / Bancaje","Renta Depa Miraflores","Otro ingreso"];
+const CAT_RENTA_DEPA=["Renta Depa Miraflores"];
 const CAT_FUXION_EX=["Venta productos Fuxion","Compra productos Fuxion"];
 const CAT_DEPA=["Depa Miraflores"];
 const FT=["Personal","EIRL","Familiar hermano","Familiar pareja","Familiar mama","Familiar papa","Otro"];
@@ -798,7 +799,7 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
 const DEPA_ARTIFACT_URL="https://claude.ai/artifact/J6G7AMY4pPYfbmeNgPq5sH";
 const DEPA_IMPORTE=277800;
 
-function TabDepa({txns}){
+function TabDepa({txns,sesion}){
   const [pagos,setPagos]=React.useState(null);
   const [config,setConfig]=React.useState(null);
   const [loadErr,setLoadErr]=React.useState(false);
@@ -819,9 +820,13 @@ function TabDepa({txns}){
     });
   },[]);
 
-  // Gastos depa desde FinanzasLibre
+  // Gastos e ingresos depa desde FinanzasLibre
   const gastosFL=txns.filter(t=>t.tipo==="gasto"&&t.cat==="Depa Miraflores").sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
   const totalFL=gastosFL.reduce((a,t)=>a+t.monto,0);
+  const rentasFL=txns.filter(t=>t.tipo==="ingreso"&&CAT_RENTA_DEPA.includes(t.cat)).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+  const totalRentas=rentasFL.reduce((a,t)=>a+t.monto,0);
+  const cuotaMensual=(config?.cuota||2421.89);
+  const roiMensual=totalRentas>0?totalRentas-cuotaMensual:null;
 
   // Parsear pagos del artefacto
   const pagosList=pagos?pagos.map(d=>d.data||d).filter(Boolean):[];
@@ -900,6 +905,31 @@ function TabDepa({txns}){
             <div style={{fontSize:10,color:C.muted}}>días</div>
           </div>
         </div>
+      </div>
+
+      {/* Rentabilidad */}
+      <div style={{background:C.card,border:"1px solid "+(totalRentas>0?C.emerald:C.border),borderRadius:16,padding:14,marginBottom:12}}>
+        <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>RENTABILIDAD MENSUAL</div>
+        {totalRentas===0?(
+          <div style={{fontSize:12,color:C.muted}}>Sin ingresos por renta aún. Cuando alquiles el depa registra los pagos como <span style={{color:C.emerald,fontWeight:700}}>"Renta Depa Miraflores"</span> en ingresos.</div>
+        ):(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{fontSize:12,color:C.text}}>Renta ingresada</span>
+              <span style={{fontSize:13,fontWeight:700,color:C.emerald}}>+S/{totalRentas.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+              <span style={{fontSize:12,color:C.text}}>Cuota BBVA</span>
+              <span style={{fontSize:13,fontWeight:700,color:C.danger}}>-S/{cuotaMensual.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+            </div>
+            <div style={{borderTop:"1px solid "+C.border,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:12,fontWeight:700,color:C.text}}>Flujo neto</span>
+              <span style={{fontSize:14,fontWeight:900,color:roiMensual>=0?C.emerald:C.warn}}>
+                {roiMensual>=0?"+":""}S/{roiMensual.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Desglose por rubro */}
@@ -1437,7 +1467,7 @@ export default function App(){
         {tab===0&&<TabDashboard perfil={perfil} txns={txns} fuxionSemanas={fuxionSemanas} cajaEirl={cajaEirl} gastosFijos={gastosFijos}/>}
         {tab===1&&<TabRegistrar userId={uid} sesion={sesion} txns={txns} setTxns={setTxns} fuxionSemanas={fuxionSemanas} gastosFijos={gastosFijos}/>}
         {tab===2&&<TabFuxion userId={uid} sesion={sesion} fuxionSemanas={fuxionSemanas} setFuxionSemanas={setFuxionSemanas} cajaMovs={cajaMovs} setCajaMovs={setCajaMovs} txns={txns} perfil={perfil} setPerfil={setPerfil}/>}
-        {tab===3&&<TabDepa txns={txns}/>}
+        {tab===3&&<TabDepa txns={txns} sesion={sesion}/>}
         {tab===4&&<TabDeudas userId={uid} sesion={sesion} deudas={deudas} setDeudas={setDeudas}/>}
         {tab===5&&<TabCobrar userId={uid} sesion={sesion} cobrar={cobrar} setCobrar={setCobrar} txns={txns} setTxns={setTxns}/>}
         {tab===6&&<TabPlan perfil={perfil} deudas={deudas} extras={extras} sesion={sesion} setExtras={setExtras} gastosFijos={gastosFijos} setGastosFijos={setGastosFijos} userId={uid}/>}
