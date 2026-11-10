@@ -831,12 +831,23 @@ function TabDepa({txns,sesion}){
   const roiMensual=totalRentas>0?totalRentas-cuotaMensual:null;
 
   // Parsear pagos del artefacto
+  const ABONO="Abono al otro";
+  const r2=v=>Math.round(v*100)/100;
   const pagosList=Array.isArray(pagos)?pagos:[];
   const pagosA=pagosList.filter(p=>p.quien==="A");
   const pagosB=pagosList.filter(p=>p.quien==="B");
   const totalA=pagosA.reduce((a,p)=>a+(p.monto||0),0);
   const totalB=pagosB.reduce((a,p)=>a+(p.monto||0),0);
-  const balance=totalA-totalB;
+  // Excluir "Abono al otro" del gasto real de cada uno
+  const gastosA=pagosA.filter(p=>p.rubro!==ABONO).reduce((a,p)=>a+(p.monto||0),0);
+  const gastosB=pagosB.filter(p=>p.rubro!==ABONO).reduce((a,p)=>a+(p.monto||0),0);
+  const abonoAaB=pagosA.filter(p=>p.rubro===ABONO).reduce((a,p)=>a+(p.monto||0),0);
+  const abonoBaA=pagosB.filter(p=>p.rubro===ABONO).reduce((a,p)=>a+(p.monto||0),0);
+  const totalGastos=gastosA+gastosB;
+  const mitad=r2(totalGastos/2);
+  // saldoA>0 = Melissa le debe a Johnatan; saldoA<0 = Johnatan le debe a Melissa
+  const saldoA=r2(gastosA-mitad+abonoAaB-abonoBaA);
+  const balance=saldoA;
 
   // Próxima cuota BBVA
   const hoy=new Date();
@@ -859,7 +870,7 @@ function TabDepa({txns,sesion}){
         <div style={{fontSize:11,color:C.muted,marginBottom:12}}>Inversión total del activo</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
           <div style={{background:C.card,borderRadius:12,padding:12}}>
-            <div style={{fontSize:18,fontWeight:900,color:C.accent}}>S/{(totalA+totalB).toLocaleString("es-PE",{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+            <div style={{fontSize:18,fontWeight:900,color:C.accent}}>S/{totalGastos.toLocaleString("es-PE",{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
             <div style={{fontSize:10,color:C.muted}}>Total invertido</div>
           </div>
           <div style={{background:C.card,borderRadius:12,padding:12}}>
@@ -872,11 +883,11 @@ function TabDepa({txns,sesion}){
           <div style={{fontSize:10,fontWeight:700,color:C.muted,marginBottom:8}}>APORTE POR PERSONA</div>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
             <span style={{fontSize:12,color:C.text}}>Tú (A)</span>
-            <span style={{fontSize:13,fontWeight:700,color:C.accent}}>S/{totalA.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.accent}}>S/{gastosA.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
           </div>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
             <span style={{fontSize:12,color:C.text}}>Melissa (B)</span>
-            <span style={{fontSize:13,fontWeight:700,color:C.purple}}>S/{totalB.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.purple}}>S/{gastosB.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
           </div>
           <div style={{borderTop:"1px solid "+C.border,paddingTop:8}}>
             {balance<0?(
