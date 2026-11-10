@@ -1,3 +1,4 @@
+// v997ce7e - fix TabDepa cfg order
 import { useState, useEffect } from "react";
 
 const SUPA_URL = "https://zvdnwnknmkrwcpnyorle.supabase.co";
