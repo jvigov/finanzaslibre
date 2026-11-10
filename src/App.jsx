@@ -88,9 +88,10 @@ const GASTOS_FIJOS=[
 ];
 const TOTAL_FIJOS=GASTOS_FIJOS.reduce((a,g)=>a+g.monto,0);
 
-const GC=["Alimentacion","Comida afuera","Taxi / Uber","Viaje y combustible","Salud y farmacia","Entretenimiento","Regalo / detalle","Ropa y personal","Suscripciones IA","Educacion","Compra productos Fuxion","Extraordinario"];
+const GC=["Alimentacion","Comida afuera","Taxi / Uber","Viaje y combustible","Salud y farmacia","Entretenimiento","Regalo / detalle","Ropa y personal","Suscripciones IA","Educacion","Compra productos Fuxion","Extraordinario","Depa Miraflores"];
 const IC=["Sueldo SUNAT","Gestiones admin","Venta productos Fuxion","Firu / Bancaje","Otro ingreso"];
 const CAT_FUXION_EX=["Venta productos Fuxion","Compra productos Fuxion"];
+const CAT_DEPA=["Depa Miraflores"];
 const FT=["Personal","EIRL","Familiar hermano","Familiar pareja","Familiar mama","Familiar papa","Otro"];
 const ESTRATEGIAS=["Pagando puntual","Negociando","En espera","Castigada"];
 const ESTRATEGIA_C={"Pagando puntual":"#10b981","Negociando":"#f59e0b","En espera":"#8b5cf6","Castigada":"#f43f5e"};
@@ -186,8 +187,10 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
   const ingFuxPeriodo=Math.max(fuxResPer,0);
   const ingTotal=ingTxns+ingFuxPeriodo;
 
-  // Gastos variables del periodo visto
-  const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin&&!CAT_FUXION_EX.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+  // Gastos variables del periodo visto (excluye Fuxion y Depa)
+  const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin&&!CAT_FUXION_EX.includes(t.cat)&&!CAT_DEPA.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+  // Inversión depa del periodo (separada, no contamina el profit)
+  const gastDepa=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin&&CAT_DEPA.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
   const gastMes=totalFijos+gastVar;
   const margen=ingTotal-gastMes;
 
@@ -215,12 +218,17 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
           Margen libre · Periodo {periodoVisto} · {fmtF(perIni)} — {fmtF(perFin)}
         </div>
         <div style={{fontSize:42,fontWeight:900,color:margen>=0?C.emerald:C.danger,lineHeight:1,marginBottom:8}}>{fmtK(margen)}</div>
-        <div style={{fontSize:12,color:C.soft,marginBottom:12}}>
+        <div style={{fontSize:12,color:C.soft,marginBottom:gastDepa>0?6:12}}>
           <span style={{color:C.emerald}}>+{fmtK(ingTotal)}</span>
           <span style={{color:C.muted}}> ingresos &nbsp;·&nbsp; </span>
           <span style={{color:C.danger}}>-{fmtK(gastMes)}</span>
           <span style={{color:C.muted}}> gastos</span>
         </div>
+        {gastDepa>0&&(
+          <div style={{fontSize:11,color:C.purple,marginBottom:12,background:C.purple+"12",borderRadius:8,padding:"5px 10px",display:"inline-block"}}>
+            🏢 Inversión Depa Miraflores: -{fmtK(gastDepa)} (patrimonio, no afecta profit)
+          </div>
+        )}
         <div style={{...S.bar(4),marginBottom:4}}><div style={S.fill(pctPeriodo,C.accent+"80",4)}/></div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.muted}}>
           <span>Dia {diasTrans} de {diasTotales}</span>
