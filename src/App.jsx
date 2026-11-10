@@ -187,9 +187,8 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
   const ingFuxPeriodo=Math.max(fuxResPer,0);
   const ingTotal=ingTxns+ingFuxPeriodo;
 
-  // Gastos variables del periodo visto (excluye Fuxion y Depa)
+  // Gastos variables del periodo visto
   const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin&&!CAT_FUXION_EX.includes(t.cat)&&!CAT_DEPA.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
-  // Inversión depa del periodo (separada, no contamina el profit)
   const gastDepa=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin&&CAT_DEPA.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
   const gastMes=totalFijos+gastVar;
   const margen=ingTotal-gastMes;
@@ -1295,4 +1294,3 @@ export default function App(){
     </div>
   );
 }
-
