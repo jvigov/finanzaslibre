@@ -187,8 +187,9 @@ function TabDashboard({perfil,txns,fuxionSemanas,cajaEirl,gastosFijos}){
   const ingFuxPeriodo=Math.max(fuxResPer,0);
   const ingTotal=ingTxns+ingFuxPeriodo;
 
-  // Gastos variables del periodo visto
+  // Gastos variables del periodo visto (excluye Fuxion y Depa)
   const gastVar=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin&&!CAT_FUXION_EX.includes(t.cat)&&!CAT_DEPA.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
+  // Inversión depa del periodo (separada, no contamina el profit)
   const gastDepa=txns.filter(t=>t.tipo==="gasto"&&t.fecha&&t.fecha.split("T")[0]>=perIni&&t.fecha.split("T")[0]<=perFin&&CAT_DEPA.includes(t.cat)).reduce((a,t)=>a+t.monto,0);
   const gastMes=totalFijos+gastVar;
   const margen=ingTotal-gastMes;
@@ -794,6 +795,155 @@ function TabFuxion({userId,sesion,fuxionSemanas,setFuxionSemanas,cajaMovs,setCaj
 }
 
 // ── DEUDAS ────────────────────────────────────────────────────────────────────
+const DEPA_ARTIFACT_URL="https://claude.ai/artifact/J6G7AMY4pPYfbmeNgPq5sH";
+const DEPA_IMPORTE=277800;
+
+function TabDepa({txns}){
+  const [pagos,setPagos]=React.useState(null);
+  const [config,setConfig]=React.useState(null);
+  const [loadErr,setLoadErr]=React.useState(false);
+
+  React.useEffect(()=>{
+    // Fetch pagos collection from artifact DB
+    fetch("https://firestore.googleapis.com/v1/projects/claude-artifacts/databases/(default)/documents/artifacts/J6G7AMY4pPYfbmeNgPq5sH/pagos")
+      .catch(()=>null);
+    // Use Claude artifact public API
+    const base="https://artifact-db.claude.ai/v1/artifacts/J6G7AMY4pPYfbmeNgPq5sH";
+    Promise.all([
+      fetch(base+"/collections/pagos/documents?limit=100").then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(base+"/collections/config/documents/bbva").then(r=>r.ok?r.json():null).catch(()=>null)
+    ]).then(([p,c])=>{
+      if(p)setPagos(p.documents||[]);
+      if(c)setConfig(c.data||null);
+      if(!p)setLoadErr(true);
+    });
+  },[]);
+
+  // Gastos depa desde FinanzasLibre
+  const gastosFL=txns.filter(t=>t.tipo==="gasto"&&t.cat==="Depa Miraflores").sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+  const totalFL=gastosFL.reduce((a,t)=>a+t.monto,0);
+
+  // Parsear pagos del artefacto
+  const pagosList=pagos?pagos.map(d=>d.data||d).filter(Boolean):[];
+  const pagosA=pagosList.filter(p=>p.quien==="A");
+  const pagosB=pagosList.filter(p=>p.quien==="B");
+  const totalA=pagosA.reduce((a,p)=>a+(p.monto||0),0);
+  const totalB=pagosB.reduce((a,p)=>a+(p.monto||0),0);
+  const balance=totalA-totalB; // positivo = Johnatan pagó más; negativo = Johnatan debe a Melissa
+
+  // Próxima cuota BBVA
+  const cfg=config||{cuota:2421.89,dia:30};
+  const hoy=new Date();
+  const diaCorte=cfg.dia||30;
+  let proxBBVA=new Date(hoy.getFullYear(),hoy.getMonth(),diaCorte);
+  if(proxBBVA<=hoy)proxBBVA=new Date(hoy.getFullYear(),hoy.getMonth()+1,diaCorte);
+  const diasBBVA=Math.ceil((proxBBVA-hoy)/(1000*60*60*24));
+
+  const rubros=pagosList.reduce((acc,p)=>{
+    const r=p.rubro||"Otros";
+    acc[r]=(acc[r]||0)+(p.monto||0);
+    return acc;
+  },{});
+
+  return(
+    <div>
+      {/* Hero balance */}
+      <div style={{background:"linear-gradient(135deg,#0d1f35,#0a1520)",border:"1px solid "+C.purple+"40",borderRadius:20,padding:20,marginBottom:12}}>
+        <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>🏢 Depa Miraflores</div>
+        <div style={{fontSize:11,color:C.muted,marginBottom:12}}>Inversión total del activo</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          <div style={{background:C.card,borderRadius:12,padding:12}}>
+            <div style={{fontSize:18,fontWeight:900,color:C.accent}}>S/{(totalA+totalB).toLocaleString("es-PE",{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+            <div style={{fontSize:10,color:C.muted}}>Total invertido</div>
+          </div>
+          <div style={{background:C.card,borderRadius:12,padding:12}}>
+            <div style={{fontSize:18,fontWeight:900,color:C.emerald}}>S/{DEPA_IMPORTE.toLocaleString("es-PE")}</div>
+            <div style={{fontSize:10,color:C.muted}}>Valor del depa</div>
+          </div>
+        </div>
+        {/* Balance A vs B */}
+        <div style={{background:C.card,borderRadius:12,padding:12,marginBottom:8}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,marginBottom:8}}>APORTE POR PERSONA</div>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+            <span style={{fontSize:12,color:C.text}}>Tú (A)</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.accent}}>S/{totalA.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+            <span style={{fontSize:12,color:C.text}}>Melissa (B)</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.purple}}>S/{totalB.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          </div>
+          <div style={{borderTop:"1px solid "+C.border,paddingTop:8}}>
+            {balance<0?(
+              <div style={{fontSize:12,color:C.warn,fontWeight:700}}>
+                Le debes a Melissa: S/{Math.abs(balance).toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}
+              </div>
+            ):(
+              <div style={{fontSize:12,color:C.emerald,fontWeight:700}}>
+                Melissa te debe: S/{balance.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}
+              </div>
+            )}
+          </div>
+        </div>
+        {loadErr&&<div style={{fontSize:11,color:C.warn,marginTop:4}}>⚠ No se pudo conectar al artefacto. Mostrando solo datos de FinanzasLibre.</div>}
+      </div>
+
+      {/* Próxima cuota BBVA */}
+      <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:16,padding:14,marginBottom:12}}>
+        <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>PRÓXIMA CUOTA BBVA</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:20,fontWeight:900,color:C.danger}}>S/{(cfg.cuota||2421.89).toLocaleString("es-PE",{minimumFractionDigits:2})}</div>
+            <div style={{fontSize:11,color:C.muted}}>{proxBBVA.toLocaleDateString("es-PE",{day:"numeric",month:"long",year:"numeric"})}</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:22,fontWeight:900,color:diasBBVA<=7?C.danger:diasBBVA<=15?C.warn:C.text}}>{diasBBVA}</div>
+            <div style={{fontSize:10,color:C.muted}}>días</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Desglose por rubro */}
+      {Object.keys(rubros).length>0&&(
+        <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:16,padding:14,marginBottom:12}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>DESGLOSE POR RUBRO</div>
+          {Object.entries(rubros).sort((a,b)=>b[1]-a[1]).map(([r,m])=>(
+            <div key={r} style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{fontSize:12,color:C.text}}>{r}</span>
+              <span style={{fontSize:12,fontWeight:700,color:C.soft}}>S/{m.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Movimientos en FinanzasLibre */}
+      <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:16,padding:14,marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1}}>TUS PAGOS REGISTRADOS</div>
+          <div style={{fontSize:12,fontWeight:700,color:C.purple}}>S/{totalFL.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        </div>
+        {gastosFL.length===0?(
+          <div style={{fontSize:12,color:C.muted,textAlign:"center",padding:12}}>Sin registros en FinanzasLibre aún</div>
+        ):gastosFL.map(t=>(
+          <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border+"60"}}>
+            <div>
+              <div style={{fontSize:12,color:C.text}}>{t.descripcion||"Sin descripción"}</div>
+              <div style={{fontSize:10,color:C.muted}}>{t.fecha?t.fecha.split("T")[0]:""}</div>
+            </div>
+            <div style={{fontSize:13,fontWeight:700,color:C.danger}}>-S/{t.monto.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Link al artefacto */}
+      <div style={{textAlign:"center",padding:"8px 0 16px"}}>
+        <a href={DEPA_ARTIFACT_URL} target="_blank" rel="noopener noreferrer" style={{fontSize:12,color:C.purple,textDecoration:"none"}}>
+          Ver tracker completo del depa →
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function TabDeudas({userId,sesion,deudas,setDeudas}){
   const [modal,setModal]=useState(null);
   const [f,setF]=useState({nombre:"",entidad:"",tipo:"Prestamo personal",saldo:"",tasa:"",cuota:"",dias_atraso:0,estrategia:"Pagando puntual",nota:""});
@@ -1251,7 +1401,7 @@ export default function App(){
   const cajaManualE=(cajaMovs||[]).filter(m=>m.tipo==="entrada").reduce((a,m)=>a+m.monto,0);
   const cajaManualS=(cajaMovs||[]).filter(m=>m.tipo==="salida").reduce((a,m)=>a+m.monto,0);
   const cajaEirl=cajaAuto+cajaManualE-cajaManualS+(perfil.caja_eirl_ajuste||0);
-  const TABS=["Inicio","Registrar","Fuxion","Deudas","Por Cobrar","Mi Plan"];
+  const TABS=["Inicio","Registrar","Fuxion","Depa","Deudas","Por Cobrar","Mi Plan"];
   const uid=sesion&&sesion.user.id;
 
   if(appState==="splash")return(
@@ -1287,10 +1437,12 @@ export default function App(){
         {tab===0&&<TabDashboard perfil={perfil} txns={txns} fuxionSemanas={fuxionSemanas} cajaEirl={cajaEirl} gastosFijos={gastosFijos}/>}
         {tab===1&&<TabRegistrar userId={uid} sesion={sesion} txns={txns} setTxns={setTxns} fuxionSemanas={fuxionSemanas} gastosFijos={gastosFijos}/>}
         {tab===2&&<TabFuxion userId={uid} sesion={sesion} fuxionSemanas={fuxionSemanas} setFuxionSemanas={setFuxionSemanas} cajaMovs={cajaMovs} setCajaMovs={setCajaMovs} txns={txns} perfil={perfil} setPerfil={setPerfil}/>}
-        {tab===3&&<TabDeudas userId={uid} sesion={sesion} deudas={deudas} setDeudas={setDeudas}/>}
-        {tab===4&&<TabCobrar userId={uid} sesion={sesion} cobrar={cobrar} setCobrar={setCobrar} txns={txns} setTxns={setTxns}/>}
-        {tab===5&&<TabPlan perfil={perfil} deudas={deudas} extras={extras} sesion={sesion} setExtras={setExtras} gastosFijos={gastosFijos} setGastosFijos={setGastosFijos} userId={uid}/>}
+        {tab===3&&<TabDepa txns={txns}/>}
+        {tab===4&&<TabDeudas userId={uid} sesion={sesion} deudas={deudas} setDeudas={setDeudas}/>}
+        {tab===5&&<TabCobrar userId={uid} sesion={sesion} cobrar={cobrar} setCobrar={setCobrar} txns={txns} setTxns={setTxns}/>}
+        {tab===6&&<TabPlan perfil={perfil} deudas={deudas} extras={extras} sesion={sesion} setExtras={setExtras} gastosFijos={gastosFijos} setGastosFijos={setGastosFijos} userId={uid}/>}
       </div>
     </div>
   );
 }
+
