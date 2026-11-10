@@ -806,18 +806,16 @@ function TabDepa({txns,sesion}){
   const [loadErr,setLoadErr]=useState(false);
 
   useEffect(()=>{
-    // Fetch pagos collection from artifact DB
-    fetch("https://firestore.googleapis.com/v1/projects/claude-artifacts/databases/(default)/documents/artifacts/J6G7AMY4pPYfbmeNgPq5sH/pagos")
-      .catch(()=>null);
-    // Use Claude artifact public API
-    const base="https://artifact-db.claude.ai/v1/artifacts/J6G7AMY4pPYfbmeNgPq5sH";
-    Promise.all([
-      fetch(base+"/collections/pagos/documents?limit=100").then(r=>r.ok?r.json():null).catch(()=>null),
-      fetch(base+"/collections/config/documents/bbva").then(r=>r.ok?r.json():null).catch(()=>null)
-    ]).then(([p,c])=>{
-      if(p)setPagos(p.documents||[]);
-      if(c)setConfig(c.data||null);
-      if(!p)setLoadErr(true);
+    const SB_URL="https://zvdnwnknmkrwcpnyorle.supabase.co";
+    const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2ZG53bmtubWtyd2NwbnlvcmxlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTY2ODcsImV4cCI6MjA5MzY3MjY4N30.nBoMnQbatFQekFakmKsEIS4qjgU2BHpzUzUz9nvxY-E";
+    fetch(`${SB_URL}/rest/v1/depa_pagos?select=*&order=fecha.desc&limit=200`,{
+      headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}
+    })
+    .then(r=>r.ok?r.json():null)
+    .catch(()=>null)
+    .then(data=>{
+      if(data){setPagos(data);setLoadErr(false);}
+      else setLoadErr(true);
     });
   },[]);
 
@@ -833,7 +831,7 @@ function TabDepa({txns,sesion}){
   const roiMensual=totalRentas>0?totalRentas-cuotaMensual:null;
 
   // Parsear pagos del artefacto
-  const pagosList=pagos?pagos.map(d=>d.data||d).filter(Boolean):[];
+  const pagosList=Array.isArray(pagos)?pagos:[];
   const pagosA=pagosList.filter(p=>p.quien==="A");
   const pagosB=pagosList.filter(p=>p.quien==="B");
   const totalA=pagosA.reduce((a,p)=>a+(p.monto||0),0);
